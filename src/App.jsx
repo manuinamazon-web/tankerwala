@@ -38,12 +38,22 @@ export default function App() {
 
   if (loading) return <div className="spinner" style={{marginTop:'40vh'}}></div>
 
+  if (user && !profile) return <div className="spinner" style={{marginTop:'40vh'}}></div>
+
+  function getHome() {
+    if (!user) return <Home />
+    if (profile?.role === 'admin') return <Navigate to="/admin" />
+    if (profile?.role === 'driver') return <Navigate to="/driver" />
+    if (profile?.role === 'customer') return <Navigate to="/customer" />
+    return <Home />
+  }
+
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={!user ? <Home /> : <Navigate to={`/${profile?.role}`} />} />
-        <Route path="/login" element={!user ? <Login /> : <Navigate to={`/${profile?.role}`} />} />
-        <Route path="/register" element={!user ? <Register /> : <Navigate to={`/${profile?.role}`} />} />
+        <Route path="/" element={getHome()} />
+        <Route path="/login" element={!user ? <Login /> : getHome()} />
+        <Route path="/register" element={!user ? <Register /> : getHome()} />
         <Route path="/customer" element={user && profile?.role === 'customer' ? <CustomerDashboard profile={profile} /> : <Navigate to="/" />} />
         <Route path="/customer/post" element={user && profile?.role === 'customer' ? <PostRequest profile={profile} /> : <Navigate to="/" />} />
         <Route path="/customer/bids/:requestId" element={user && profile?.role === 'customer' ? <ViewBids profile={profile} /> : <Navigate to="/" />} />
