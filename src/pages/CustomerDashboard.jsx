@@ -2,17 +2,51 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
+function playSound(freq, vol, repeat) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)()
+    for(let i = 0; i < repeat; i++) {
+      setTimeout(() => {
+        const o = ctx.createOscillator()
+        const g = ctx.createGain()
+        o.connect(g); g.connect(ctx.destination)
+        o.frequency.value = freq
+        g.gain.value = vol
+        o.type = 'sine'
+        o.start(); o.stop(ctx.currentTime + 0.4)
+      }, i * 500)
+    }
+  } catch(e) {}
+}
+
 export default function CustomerDashboard({ profile }) {
   const [requests, setRequests] = useState([])
   const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
 
-  useEffect(() => { fetchRequests() }, [])
+  useEffect(() => {
+    fetchRequests()
+
+    const channel = supabase.channel('customer-dashboard')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bids' }, (payload) => {
+        playSound(660, 0.4, 2)
+        fetchRequests()
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'requests', filter: `customer_id=eq.${profile.id}` }, (payload) => {
+        if (payload.new?.status === 'accepted') {
+          playSound(528, 0.4, 4)
+        }
+        fetchRequests()
+      })
+      .subscribe()
+
+    return () => supabase.removeChannel(channel)
+  }, [])
 
   async function fetchRequests() {
     const { data } = await supabase
       .from('requests')
-      .select('*, bids(count)')
+      .select('*')
       .eq('customer_id', profile.id)
       .order('created_at', { ascending: false })
     setRequests(data || [])
@@ -24,62 +58,74 @@ export default function CustomerDashboard({ profile }) {
     navigate('/')
   }
 
-  const statusColor = { pending:'#F57F17', accepted:'#2E7D32', completed:'#283593', cancelled:'#C62828' }
+  function getStatusStyle(status) {
+    if (status === 'accepted') return { background:'#E8F5E9', color:'#2E7D32' }
+    if (status === 'completed') return { background:'#E3F2FD', color:'#1565C0' }
+    return { background:'#FFF3E0', color:'#E65100' }
+  }
 
   return (
     <div className="page">
       <div className="topbar">
         <div>
           <div className="topbar-logo">Tanker<span>Wala</span></div>
-          <div style={{fontSize:'13px', color:'#5a6a85'}}>Hello, {profile.name} 👋</div>
+          <div style={{fontSize:'12px', color:'#5a6a85'}}>Hello, {profile.name} 👋</div>
         </div>
         <button className="logout-btn" onClick={logout}>Logout</button>
       </div>
 
-      <button className="btn-primary" onClick={() => navigate('/customer/post')} style={{marginBottom:'24px'}}>
+      <button className="btn-primary" style={{marginBottom:'20px'}} onClick={() => navigate('/customer/post')}>
         + Post New Tanker Request
       </button>
 
-      <div className="section-title">Your Requests</div>
+      <div style={{fontWeight:700, fontSize:'16px', marginBottom:'12px', color:'#1a2a4a'}}>Your Requests</div>
 
       {loading && <div className="spinner"></div>}
 
       {!loading && requests.length === 0 && (
         <div className="empty-state">
-          <div className="icon">💧</div>
-          <p>No requests yet. Post your first tanker request!</p>
+          <div className="icon">🚛</div>
+          <p>No requests yet.</p>
+          <p style={{fontSize:'13px', color:'#5a6a85'}}>Post your first tanker request to get bids from drivers!</p>
         </div>
       )}
 
       {requests.map(req => (
-        <div key={req.id} className="card" style={{marginBottom:'14px'}}>
-          <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'12px'}}>
-            <div>
-              <span className={`badge badge-${req.type}`}>{req.type === 'water' ? '💧 Water' : '🚰 Sewage'}</span>
-              <span style={{marginLeft:'8px', fontSize:'14px', color:'#5a6a85'}}>{req.capacity} litres</span>
+        <div key={req.id} className="card" style={{marginBottom:'12px'}}>
+          <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'8px'}}>
+            <div style={{display:'flex', gap:'6px', alignItems:'center'}}>
+              <span style={{background: req.tanker_type==='water' ? '#E3F2FD' : '#E8F5E9', color: req.tanker_type==='water' ? '#1565C0' : '#2E7D32', padding:'4px 10px', borderRadius:'20px', fontSize:'13px', fontWeight:600}}>
+                {req.tanker_type === 'water' ? '💧 Water' : '🚽 Sewage'}
+              </span>
+              <span style={{fontWeight:600, color:'#333'}}>{req.capacity} litres</span>
             </div>
-            <span style={{
-              background: statusColor[req.status]+'20',
-              color: statusColor[req.status],
-              padding:'4px 10px', borderRadius:'20px', fontSize:'12px', fontWeight:600
-            }}>{req.status?.toUpperCase()}</span>
+            <span style={{...getStatusStyle(req.status), padding:'4px 10px', borderRadius:'20px', fontSize:'12px', fontWeight:600}}>
+              {req.status?.toUpperCase()}
+            </span>
           </div>
 
-          <div style={{fontSize:'13px', color:'#5a6a85', marginBottom:'12px'}}>
-            📍 {req.address || 'Location set'}<br/>
-            🕒 {new Date(req.created_at).toLocaleDateString('en-IN', {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}
-          </div>
-
-          {req.status === 'pending' && (
-            <button className="btn-outline" style={{width:'100%'}} onClick={() => navigate(`/customer/bids/${req.id}`)}>
-              View Bids ({req.bids?.[0]?.count || 0})
-            </button>
+          {req.location_text && (
+            <div style={{fontSize:'13px', color:'#5a6a85', marginBottom:'4px'}}>📍 {req.location_text}</div>
           )}
 
+          <div style={{fontSize:'12px', color:'#5a6a85', marginBottom:'12px'}}>
+            🕐 {new Date(req.created_at).toLocaleString('en-IN', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}
+          </div>
+
           {req.status === 'accepted' && req.driver_phone && (
-            <div className="alert alert-success">
-              ✅ Bid accepted! Call driver: <strong>{req.driver_phone}</strong>
+            <div style={{background:'#E8F5E9', borderRadius:'10px', padding:'12px', marginBottom:'12px'}}>
+              <div style={{fontWeight:700, color:'#2E7D32', marginBottom:'4px'}}>✅ Bid accepted!</div>
+              <div style={{fontSize:'14px'}}>Call driver: <strong style={{color:'#1565C0'}}>{req.driver_phone}</strong></div>
             </div>
+          )}
+
+          {req.status === 'pending' && (
+            <button
+              onClick={() => navigate(`/customer/bids/${req.id}`)}
+              style={{width:'100%', padding:'12px', background:'#F0F4FF', border:'1.5px solid #C5D5F0', borderRadius:'10px', color:'#1565C0', fontWeight:600, fontSize:'14px', cursor:'pointer'}}
+            >
+              👁️ View Bids
+            </button>
           )}
         </div>
       ))}
