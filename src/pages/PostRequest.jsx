@@ -20,7 +20,13 @@ export default function PostRequest({ profile }) {
         setLat(pos.coords.latitude)
         setLng(pos.coords.longitude)
         setLocating(false)
-        update('address', `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`)
+        fetch(`https://nominatim.openstreetmap.org/reverse?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&format=json`)
+  .then(r => r.json())
+  .then(data => {
+    const area = data.address?.suburb || data.address?.neighbourhood || data.address?.village || data.address?.county || 'Current Location'
+    const city = data.address?.city || data.address?.town || ''
+    update('address', `${area}${city ? ', ' + city : ''}`)
+  })
       },
       () => {
         setLocating(false)
