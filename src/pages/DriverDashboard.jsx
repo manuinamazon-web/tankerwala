@@ -50,9 +50,11 @@ export default function DriverDashboard({ profile, setProfile }) {
     })
 
     const channel = supabase.channel('driver-requests')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'requests' }, () => {
-        playSound(440, 0.4, 4)
-        fetchData()
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'requests' }, (payload) => {
+        if (payload.new?.tanker_type === profile.tanker_type) {
+          playSound(440, 0.4, 4)
+          fetchData()
+        }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bids', filter: `driver_id=eq.${profile.id}` }, (payload) => {
         if (payload.new?.status === 'accepted') {
@@ -67,7 +69,10 @@ export default function DriverDashboard({ profile, setProfile }) {
 
   async function fetchData() {
     const [{ data: reqs }, { data: bids }] = await Promise.all([
-      supabase.from('requests').select('*').eq('status', 'pending').order('created_at', { ascending: false }),
+      supabase.from('requests').select('*')
+        .eq('status', 'pending')
+        .eq('tanker_type', profile.tanker_type)
+        .order('created_at', { ascending: false }),
       supabase.from('bids').select('*, requests(*)').eq('driver_id', profile.id).order('created_at', { ascending: false })
     ])
     setRequests(reqs || [])
@@ -107,12 +112,15 @@ export default function DriverDashboard({ profile, setProfile }) {
     navigate('/')
   }
 
+  const tankerLabel = profile.tanker_type === 'water' ? '💧 Water' : '🚽 Sewage'
+  const tankerColor = profile.tanker_type === 'water' ? '#1565C0' : '#2E7D32'
+
   return (
     <div className="page">
       <div className="topbar">
         <div>
           <div className="topbar-logo">Tanker<span>Wala</span></div>
-          <div style={{fontSize:'12px', color:'#5a6a85'}}>Driver Dashboard</div>
+          <div style={{fontSize:'12px', color:'#5a6a85'}}>Driver — <span style={{color: tankerColor, fontWeight:600}}>{tankerLabel} Tanker</span></div>
         </div>
         <button className="logout-btn" onClick={logout}>Logout</button>
       </div>
@@ -217,7 +225,10 @@ export default function DriverDashboard({ profile, setProfile }) {
       })}
 
       {tab === 'open' && !loading && requests.length === 0 && (
-        <div className="empty-state"><div className="icon">🔔</div><p>No open requests right now.</p></div>
+        <div className="empty-state">
+          <div className="icon">{profile.tanker_type === 'water' ? '💧' : '🚽'}</div>
+          <p>No open {profile.tanker_type} tanker requests right now.</p>
+        </div>
       )}
 
       {tab === 'mybids' && !loading && myBids.map(bid => (
