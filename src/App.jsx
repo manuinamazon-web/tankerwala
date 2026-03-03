@@ -31,20 +31,27 @@ export default function App() {
   }, [])
 
   async function fetchProfile(uid) {
-    const { data } = await supabase.from('profiles').select('*').eq('id', uid).single()
-    setProfile(data)
+    let retries = 5
+    while (retries > 0) {
+      const { data } = await supabase.from('profiles').select('*').eq('id', uid).single()
+      if (data) {
+        setProfile(data)
+        setLoading(false)
+        return
+      }
+      retries--
+      await new Promise(r => setTimeout(r, 800))
+    }
     setLoading(false)
   }
 
   if (loading) return <div className="spinner" style={{marginTop:'40vh'}}></div>
 
-  if (user && !profile) return <div className="spinner" style={{marginTop:'40vh'}}></div>
-
   function getHome() {
-    if (!user) return <Home />
-    if (profile?.role === 'admin') return <Navigate to="/admin" />
-    if (profile?.role === 'driver') return <Navigate to="/driver" />
-    if (profile?.role === 'customer') return <Navigate to="/customer" />
+    if (!user || !profile) return <Home />
+    if (profile.role === 'admin') return <Navigate to="/admin" />
+    if (profile.role === 'driver') return <Navigate to="/driver" />
+    if (profile.role === 'customer') return <Navigate to="/customer" />
     return <Home />
   }
 
