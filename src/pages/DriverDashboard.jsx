@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
 function playSound(freq, vol, repeat) {
@@ -19,227 +19,143 @@ function playSound(freq, vol, repeat) {
   } catch(e) {}
 }
 
-function getDistance(lat1, lon1, lat2, lon2) {
-  if (!lat1 || !lon1 || !lat2 || !lon2) return null
-  const R = 6371
-  const dLat = (lat2 - lat1) * Math.PI / 180
-  const dLon = (lon2 - lon1) * Math.PI / 180
-  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon/2) * Math.sin(dLon/2)
-  return (R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))).toFixed(1)
-}
-
-export default function DriverDashboard({ profile, setProfile }) {
-  const [tab, setTab] = useState('open')
-  const [requests, setRequests] = useState([])
-  const [myBids, setMyBids] = useState([])
-  const [rechargeAmount, setRechargeAmount] = useState('')
-  const [bidPrices, setBidPrices] = useState({})
-  const [bidNotes, setBidNotes] = useState({})
+export default function ViewBids({ profile }) {
+  const { requestId } = useParams()
+  const [bids, setBids] = useState([])
+  const [request, setRequest] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [driverLat, setDriverLat] = useState(null)
-  const [driverLng, setDriverLng] = useState(null)
   const navigate = useNavigate()
 
   useEffect(() => {
     fetchData()
-    navigator.geolocation?.getCurrentPosition(pos => {
-      setDriverLat(pos.coords.latitude)
-      setDriverLng(pos.coords.longitude)
-    })
-
-    const channel = supabase.channel('driver-requests')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'requests' }, () => {
-        playSound(440, 0.4, 4)
+    const channel = supabase.channel('bids-channel')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bids', filter: `request_id=eq.${requestId}` }, () => {
+        playSound(660, 0.4, 2)
         fetchData()
       })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bids', filter: `driver_id=eq.${profile.id}` }, (payload) => {
-        if (payload.new?.status === 'accepted') {
-          playSound(880, 0.4, 3)
-          fetchData()
-        }
-      })
       .subscribe()
-
     return () => supabase.removeChannel(channel)
-  }, [])
+  }, [requestId])
 
   async function fetchData() {
-    const [{ data: reqs }, { data: bids }] = await Promise.all([
-      supabase.from('requests').select('*').eq('status', 'pending').order('created_at', { ascending: false }),
-      supabase.from('bids').select('*, requests(*)').eq('driver_id', profile.id).order('created_at', { ascending: false })
+    const [{ data: req }, { data: bidsData }] = await Promise.all([
+      supabase.from('requests').select('*').eq('id', requestId).single(),
+      supabase.from('bids').select('*').eq('request_id', requestId).order('price', { ascending: true })
     ])
-    setRequests(reqs || [])
-    setMyBids(bids || [])
+    setRequest(req)
+    setBids(bidsData || [])
     setLoading(false)
   }
 
-  async function submitBid(requestId) {
-    const price = bidPrices[requestId]
-    if (!price) return alert('Please enter your price')
-    if (!profile.is_active) return alert('Account inactive. Please recharge ₹100 first.')
-    if (profile.wallet_balance < 10) return alert('Insufficient wallet balance. Please recharge.')
-    const { error } = await supabase.from('bids').insert({
-      request_id: requestId,
-      driver_id: profile.id,
-      driver_name: profile.name,
-      driver_phone: profile.phone,
-      price: parseInt(price),
-      note: bidNotes[requestId] || ''
-    })
-    if (error) alert(error.message)
-    else { alert('Bid submitted!'); fetchData() }
+  async function acceptBid(bid) {
+    if (!window.confirm(`Accept bid from ${bid.driver_name} for ₹${bid.price}?`)) return
+
+    await supabase.from('requests').update({
+      status: 'accepted',
+      accepted_price: bid.price,
+      driver_phone: bid.driver_phone
+    }).eq('id', requestId)
+
+    await supabase.from('bids').update({ status: 'accepted' }).eq('id', bid.id)
+    await supabase.from('bids').update({ status: 'rejected' }).eq('request_id', requestId).neq('id', bid.id)
+
+    const { data: driver } = await supabase.from('profiles').select('wallet_balance').eq('id', bid.driver_id).single()
+    const newBalance = (driver.wallet_balance || 0) - 10
+    await supabase.from('profiles').update({ wallet_balance: newBalance }).eq('id', bid.driver_id)
+
+    await supabase.from('commissions').insert({ request_id: requestId, driver_id: bid.driver_id, amount: 10 })
+
+    alert(`✅ Bid accepted! Driver will contact you at your registered number.`)
+    fetchData()
   }
 
-  async function requestRecharge() {
-    const amount = parseInt(rechargeAmount)
-    if (!amount || amount < 100) return alert('Minimum recharge is ₹100')
-    const { error } = await supabase.from('recharge_requests').insert({
-      driver_id: profile.id, amount
-    })
-    if (error) alert(error.message)
-    else { alert('Recharge request sent! Admin will approve shortly.'); setRechargeAmount('') }
-  }
+  if (loading) return <div className="spinner" style={{marginTop:'40vh'}}></div>
 
-  async function logout() {
-    await supabase.auth.signOut()
-    navigate('/')
-  }
+  const lowestBid = bids.length > 0 ? Math.min(...bids.map(b => b.price)) : null
 
   return (
     <div className="page">
       <div className="topbar">
-        <div>
-          <div className="topbar-logo">Tanker<span>Wala</span></div>
-          <div style={{fontSize:'12px', color:'#5a6a85'}}>Driver Dashboard</div>
-        </div>
-        <button className="logout-btn" onClick={logout}>Logout</button>
+        <button onClick={() => navigate('/customer')} style={{background:'none', border:'none', fontSize:'20px', cursor:'pointer'}}>←</button>
+        <div style={{fontWeight:700, color:'#1565C0', fontSize:'16px'}}>Bids Received</div>
+        <div></div>
       </div>
 
-      <div className="card" style={{background:'linear-gradient(135deg, #1565C0, #1976D2)', color:'white', marginBottom:'20px'}}>
-        <div style={{fontSize:'13px', opacity:0.85, marginBottom:'4px'}}>Wallet Balance</div>
-        <div style={{fontFamily:"'Baloo 2',cursive", fontSize:'36px', fontWeight:800}}>₹{profile.wallet_balance || 0}</div>
-        <div style={{fontSize:'12px', opacity:0.75}}>₹10 deducted per accepted bid</div>
-        {!profile.is_active && (
-          <div style={{background:'rgba(255,255,255,0.15)', borderRadius:'8px', padding:'10px', marginTop:'12px', fontSize:'13px'}}>
-            ⚠️ Account inactive. Recharge ₹100 to start bidding.
+      {request && (
+        <div className="card" style={{marginBottom:'16px', background:'#F0F4FF'}}>
+          <div style={{display:'flex', gap:'8px', alignItems:'center', marginBottom:'8px'}}>
+            <span style={{background: request.tanker_type==='water' ? '#E3F2FD' : '#E8F5E9', color: request.tanker_type==='water' ? '#1565C0' : '#2E7D32', padding:'4px 10px', borderRadius:'20px', fontSize:'13px', fontWeight:600}}>
+              {request.tanker_type === 'water' ? '💧 Water' : '🚽 Sewage'}
+            </span>
+            <span style={{fontWeight:700}}>{request.capacity} litres</span>
+            <span style={{
+              marginLeft:'auto', padding:'4px 10px', borderRadius:'20px', fontSize:'12px', fontWeight:600,
+              background: request.status==='accepted' ? '#E8F5E9' : '#FFF3E0',
+              color: request.status==='accepted' ? '#2E7D32' : '#E65100'
+            }}>{request.status?.toUpperCase()}</span>
           </div>
-        )}
-        <div style={{display:'flex', gap:'8px', marginTop:'12px'}}>
-          <input
-            type="number" placeholder="Amount (min ₹100)"
-            value={rechargeAmount} onChange={e => setRechargeAmount(e.target.value)}
-            style={{flex:1, padding:'10px', borderRadius:'8px', border:'none', fontSize:'14px'}}
-          />
-          <button onClick={requestRecharge} style={{
-            padding:'10px 16px', background:'#FF6F00', color:'white',
-            borderRadius:'8px', border:'none', fontWeight:700, fontSize:'14px'
-          }}>Recharge</button>
+          {request.location_text && <div style={{fontSize:'13px', color:'#5a6a85'}}>📍 {request.location_text}</div>}
+          {request.status === 'accepted' && request.driver_phone && (
+            <div style={{background:'#E8F5E9', borderRadius:'8px', padding:'12px', marginTop:'8px'}}>
+              <div style={{fontWeight:700, color:'#2E7D32', fontSize:'15px'}}>✅ Bid Accepted!</div>
+              <div style={{fontSize:'14px', marginTop:'4px'}}>Call driver: <strong>{request.driver_phone}</strong></div>
+            </div>
+          )}
         </div>
-      </div>
-
-      <div style={{display:'flex', gap:'8px', marginBottom:'16px'}}>
-        <button onClick={() => setTab('open')} style={{
-          flex:1, padding:'12px', borderRadius:'10px', fontWeight:700, fontSize:'14px',
-          background: tab==='open' ? '#1565C0' : '#F0F4FF',
-          color: tab==='open' ? 'white' : '#5a6a85', border:'none'
-        }}>🔔 Open Requests ({requests.length})</button>
-        <button onClick={() => setTab('mybids')} style={{
-          flex:1, padding:'12px', borderRadius:'10px', fontWeight:700, fontSize:'14px',
-          background: tab==='mybids' ? '#1565C0' : '#F0F4FF',
-          color: tab==='mybids' ? 'white' : '#5a6a85', border:'none'
-        }}>📋 My Bids ({myBids.length})</button>
-      </div>
-
-      {loading && <div className="spinner"></div>}
-
-      {tab === 'open' && !loading && requests.map(req => {
-        const dist = getDistance(driverLat, driverLng, req.location_lat, req.location_lng)
-        const mapsUrl = `https://www.google.com/maps?q=${req.location_lat},${req.location_lng}`
-        const alreadyBid = myBids.some(b => b.request_id === req.id)
-        return (
-          <div key={req.id} className="card" style={{marginBottom:'12px', opacity: alreadyBid ? 0.6 : 1}}>
-            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'8px'}}>
-              <div style={{display:'flex', gap:'6px', alignItems:'center'}}>
-                <span style={{background: req.tanker_type==='water' ? '#E3F2FD' : '#E8F5E9', color: req.tanker_type==='water' ? '#1565C0' : '#2E7D32', padding:'4px 10px', borderRadius:'20px', fontSize:'13px', fontWeight:600}}>
-                  {req.tanker_type === 'water' ? '💧 Water' : '🚽 Sewage'}
-                </span>
-                <span style={{fontWeight:700, color:'#1565C0'}}>{req.capacity}L</span>
-              </div>
-              {dist && <span style={{background:'#FFF3E0', color:'#E65100', padding:'4px 10px', borderRadius:'20px', fontSize:'12px', fontWeight:600}}>📏 {dist} km</span>}
-            </div>
-
-            <div style={{fontSize:'13px', color:'#5a6a85', marginBottom:'4px'}}>👤 {req.customer_name || 'Customer'}</div>
-
-            {req.location_text && (
-              <div style={{fontSize:'13px', color:'#333', marginBottom:'4px'}}>🏘️ {req.location_text}</div>
-            )}
-
-            <a href={mapsUrl} target="_blank" rel="noreferrer" style={{
-              display:'inline-block', fontSize:'13px', color:'#1565C0', fontWeight:600,
-              marginBottom:'8px', textDecoration:'none'
-            }}>📍 View on Google Maps →</a>
-
-            <div style={{fontSize:'12px', color:'#5a6a85', marginBottom:'12px'}}>
-              🕐 {new Date(req.created_at).toLocaleString('en-IN')}
-            </div>
-
-            {req.notes && (
-              <div style={{background:'#F8F9FA', borderRadius:'8px', padding:'8px', fontSize:'13px', marginBottom:'12px'}}>
-                📝 {req.notes}
-              </div>
-            )}
-
-            {alreadyBid ? (
-              <div style={{textAlign:'center', color:'#2E7D32', fontWeight:600, fontSize:'14px'}}>✅ You already bid on this</div>
-            ) : (
-              <>
-                <input
-                  type="number" placeholder="Your price (₹)"
-                  value={bidPrices[req.id] || ''}
-                  onChange={e => setBidPrices(p => ({...p, [req.id]: e.target.value}))}
-                  style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1.5px solid #C5D5F0', fontSize:'14px', marginBottom:'8px', boxSizing:'border-box'}}
-                />
-                <input
-                  type="text" placeholder="Optional note (e.g. can deliver in 1 hour)"
-                  value={bidNotes[req.id] || ''}
-                  onChange={e => setBidNotes(p => ({...p, [req.id]: e.target.value}))}
-                  style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1.5px solid #C5D5F0', fontSize:'14px', marginBottom:'8px', boxSizing:'border-box'}}
-                />
-                <button className="btn-primary" onClick={() => submitBid(req.id)}>
-                  🏷️ Submit Bid (₹10 on acceptance)
-                </button>
-              </>
-            )}
-          </div>
-        )
-      })}
-
-      {tab === 'open' && !loading && requests.length === 0 && (
-        <div className="empty-state"><div className="icon">🔔</div><p>No open requests right now.</p></div>
       )}
 
-      {tab === 'mybids' && !loading && myBids.map(bid => (
-        <div key={bid.id} className="card" style={{marginBottom:'12px'}}>
-          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-            <div>
-              <div style={{fontWeight:700}}>{bid.requests?.tanker_type === 'water' ? '💧 Water' : '🚽 Sewage'} — {bid.requests?.capacity}L</div>
-              {bid.requests?.location_text && <div style={{fontSize:'13px', color:'#5a6a85'}}>🏘️ {bid.requests.location_text}</div>}
-              <div style={{fontSize:'16px', fontWeight:800, color:'#1565C0', fontFamily:"'Baloo 2',cursive"}}>₹{bid.price}</div>
+      {bids.length === 0 && (
+        <div className="empty-state">
+          <div className="icon">⏳</div>
+          <p>Waiting for drivers to bid...</p>
+          <p style={{fontSize:'13px', color:'#5a6a85'}}>You'll hear a sound when bids arrive!</p>
+        </div>
+      )}
+
+      {bids.length > 0 && request?.status !== 'accepted' && (
+        <div className="alert alert-info" style={{marginBottom:'16px'}}>
+          🏆 Lowest bid: <strong>₹{lowestBid}</strong> — Accept the best offer!
+        </div>
+      )}
+
+      {bids.map(bid => (
+        <div key={bid.id} className="card" style={{
+          marginBottom:'12px',
+          border: bid.price === lowestBid && request?.status !== 'accepted' ? '2px solid #1565C0' : '1px solid #E8EEF8'
+        }}>
+          {bid.price === lowestBid && request?.status !== 'accepted' && (
+            <div style={{background:'#1565C0', color:'white', borderRadius:'6px', padding:'4px 10px', fontSize:'12px', fontWeight:600, marginBottom:'8px', display:'inline-block'}}>
+              🏆 Lowest Bid
             </div>
-            <span style={{
-              padding:'6px 12px', borderRadius:'20px', fontSize:'12px', fontWeight:600,
-              background: bid.status==='accepted' ? '#E8F5E9' : bid.status==='rejected' ? '#FFEBEE' : '#FFF3E0',
-              color: bid.status==='accepted' ? '#2E7D32' : bid.status==='rejected' ? '#C62828' : '#E65100'
-            }}>{bid.status?.toUpperCase()}</span>
+          )}
+          <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
+            <div>
+              <div style={{fontWeight:700, fontSize:'16px'}}>{bid.driver_name}</div>
+              {bid.status === 'accepted' && (
+                <div style={{fontSize:'13px', color:'#2E7D32'}}>📱 {bid.driver_phone}</div>
+              )}
+              {bid.note && <div style={{fontSize:'13px', color:'#5a6a85', marginTop:'4px'}}>📝 {bid.note}</div>}
+              <div style={{fontSize:'12px', color:'#5a6a85', marginTop:'4px'}}>
+                {new Date(bid.created_at).toLocaleString('en-IN')}
+              </div>
+            </div>
+            <div style={{textAlign:'right'}}>
+              <div style={{fontFamily:"'Baloo 2',cursive", fontSize:'24px', fontWeight:800, color:'#1565C0'}}>₹{bid.price}</div>
+              {bid.status === 'accepted' && (
+                <span style={{background:'#E8F5E9', color:'#2E7D32', padding:'4px 10px', borderRadius:'20px', fontSize:'12px', fontWeight:600}}>✅ ACCEPTED</span>
+              )}
+              {bid.status === 'rejected' && (
+                <span style={{background:'#FFEBEE', color:'#C62828', padding:'4px 10px', borderRadius:'20px', fontSize:'12px', fontWeight:600}}>REJECTED</span>
+              )}
+            </div>
           </div>
+          {request?.status === 'pending' && (
+            <button className="btn-primary" style={{marginTop:'12px'}} onClick={() => acceptBid(bid)}>
+              ✅ Accept This Bid
+            </button>
+          )}
         </div>
       ))}
-
-      {tab === 'mybids' && !loading && myBids.length === 0 && (
-        <div className="empty-state"><div className="icon">📋</div><p>No bids submitted yet.</p></div>
-      )}
     </div>
   )
 }
