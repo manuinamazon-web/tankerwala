@@ -2,6 +2,23 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
+function playSound(freq, vol, repeat) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)()
+    for(let i = 0; i < repeat; i++) {
+      setTimeout(() => {
+        const o = ctx.createOscillator()
+        const g = ctx.createGain()
+        o.connect(g); g.connect(ctx.destination)
+        o.frequency.value = freq
+        g.gain.value = vol
+        o.type = 'sine'
+        o.start(); o.stop(ctx.currentTime + 0.4)
+      }, i * 500)
+    }
+  } catch(e) {}
+}
+
 function getDistance(lat1, lon1, lat2, lon2) {
   if (!lat1 || !lon1 || !lat2 || !lon2) return null
   const R = 6371
@@ -31,9 +48,20 @@ export default function DriverDashboard({ profile, setProfile }) {
       setDriverLat(pos.coords.latitude)
       setDriverLng(pos.coords.longitude)
     })
+
     const channel = supabase.channel('driver-requests')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'requests' }, fetchData)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'requests' }, () => {
+        playSound(440, 0.4, 4)
+        fetchData()
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bids', filter: `driver_id=eq.${profile.id}` }, (payload) => {
+        if (payload.new?.status === 'accepted') {
+          playSound(880, 0.4, 3)
+          fetchData()
+        }
+      })
       .subscribe()
+
     return () => supabase.removeChannel(channel)
   }, [])
 
@@ -142,22 +170,16 @@ export default function DriverDashboard({ profile, setProfile }) {
               {dist && <span style={{background:'#FFF3E0', color:'#E65100', padding:'4px 10px', borderRadius:'20px', fontSize:'12px', fontWeight:600}}>📏 {dist} km</span>}
             </div>
 
-            <div style={{fontSize:'13px', color:'#5a6a85', marginBottom:'4px'}}>
-              👤 {req.customer_name || 'Customer'}
-            </div>
+            <div style={{fontSize:'13px', color:'#5a6a85', marginBottom:'4px'}}>👤 {req.customer_name || 'Customer'}</div>
 
             {req.location_text && (
-              <div style={{fontSize:'13px', color:'#333', marginBottom:'4px'}}>
-                🏘️ {req.location_text}
-              </div>
+              <div style={{fontSize:'13px', color:'#333', marginBottom:'4px'}}>🏘️ {req.location_text}</div>
             )}
 
             <a href={mapsUrl} target="_blank" rel="noreferrer" style={{
               display:'inline-block', fontSize:'13px', color:'#1565C0', fontWeight:600,
               marginBottom:'8px', textDecoration:'none'
-            }}>
-              📍 View on Google Maps →
-            </a>
+            }}>📍 View on Google Maps →</a>
 
             <div style={{fontSize:'12px', color:'#5a6a85', marginBottom:'12px'}}>
               🕐 {new Date(req.created_at).toLocaleString('en-IN')}
