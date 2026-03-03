@@ -20,6 +20,7 @@ export default function Register() {
     })
     
     if (authError) { setError(authError.message); setLoading(false); return }
+    if (!data.user) { setError('Registration failed. Please try again.'); setLoading(false); return }
 
     const { error: profileError } = await supabase.from('profiles').insert({
       id: data.user.id,
@@ -32,7 +33,10 @@ export default function Register() {
     })
 
     if (profileError) { setError(profileError.message); setLoading(false); return }
+    
     setLoading(false)
+    if (form.role === 'customer') navigate('/customer')
+    else if (form.role === 'driver') navigate('/driver')
   }
 
   return (
