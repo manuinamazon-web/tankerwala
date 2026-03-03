@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
 export default function Register() {
-  const [form, setForm] = useState({ name:'', phone:'', email:'', password:'', role:'customer' })
+  const [form, setForm] = useState({ name:'', phone:'', email:'', password:'', role:'customer', tanker_type:'water' })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
@@ -13,12 +13,12 @@ export default function Register() {
   async function handleRegister(e) {
     e.preventDefault()
     setLoading(true); setError('')
-    
+
     const { data, error: authError } = await supabase.auth.signUp({
       email: form.email,
       password: form.password,
     })
-    
+
     if (authError) { setError(authError.message); setLoading(false); return }
     if (!data.user) { setError('Registration failed. Please try again.'); setLoading(false); return }
 
@@ -28,12 +28,13 @@ export default function Register() {
       phone: form.phone,
       email: form.email,
       role: form.role,
+      tanker_type: form.role === 'driver' ? form.tanker_type : null,
       wallet_balance: form.role === 'driver' ? 0 : null,
       is_active: form.role === 'driver' ? false : true,
     })
 
     if (profileError) { setError(profileError.message); setLoading(false); return }
-    
+
     setLoading(false)
     if (form.role === 'customer') navigate('/customer')
     else if (form.role === 'driver') navigate('/driver')
@@ -65,9 +66,32 @@ export default function Register() {
         </div>
 
         {form.role === 'driver' && (
-          <div className="alert alert-info">
-            Drivers must recharge ₹100 wallet to start bidding. ₹10 is deducted per accepted bid.
-          </div>
+          <>
+            <div style={{marginBottom:'16px'}}>
+              <div style={{fontWeight:600, fontSize:'14px', marginBottom:'8px', color:'#1a2a4a'}}>Select Your Tanker Type</div>
+              <div style={{display:'flex', gap:'8px'}}>
+                <button onClick={() => update('tanker_type', 'water')} style={{
+                  flex:1, padding:'14px', borderRadius:'10px', fontSize:'14px', fontWeight:600,
+                  background: form.tanker_type==='water' ? '#E3F2FD' : '#F0F4FF',
+                  color: form.tanker_type==='water' ? '#1565C0' : '#5a6a85',
+                  border: form.tanker_type==='water' ? '2px solid #1565C0' : '2px solid #C5D5F0'
+                }}>
+                  💧 Water Tanker
+                </button>
+                <button onClick={() => update('tanker_type', 'sewage')} style={{
+                  flex:1, padding:'14px', borderRadius:'10px', fontSize:'14px', fontWeight:600,
+                  background: form.tanker_type==='sewage' ? '#E8F5E9' : '#F0F4FF',
+                  color: form.tanker_type==='sewage' ? '#2E7D32' : '#5a6a85',
+                  border: form.tanker_type==='sewage' ? '2px solid #2E7D32' : '2px solid #C5D5F0'
+                }}>
+                  🚽 Sewage Tanker
+                </button>
+              </div>
+            </div>
+            <div className="alert alert-info" style={{marginBottom:'16px'}}>
+              Drivers must recharge ₹100 wallet to start bidding. ₹10 is deducted per accepted bid.
+            </div>
+          </>
         )}
 
         <form onSubmit={handleRegister}>
