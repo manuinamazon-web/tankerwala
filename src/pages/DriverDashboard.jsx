@@ -37,7 +37,7 @@ function getDistance(lat1, lon1, lat2, lon2) {
 }
 
 export default function DriverDashboard({ profile, setProfile }) {
-  const [tab, setTab] = useState('mybids')
+  const [tab, setTab] = useState('open')
   const [requests, setRequests] = useState([])
   const [myBids, setMyBids] = useState([])
   const [rechargeAmount, setRechargeAmount] = useState('')
@@ -315,16 +315,16 @@ export default function DriverDashboard({ profile, setProfile }) {
       </div>
 
       <div style={{display:'flex', gap:'6px', marginBottom:'16px'}}>
-        <button onClick={() => setTab('mybids')} style={{
-          flex:1, padding:'10px', borderRadius:'10px', fontWeight:700, fontSize:'12px',
-          background: tab==='mybids' ? '#FF6F00' : '#F0F4FF',
-          color: tab==='mybids' ? 'white' : '#5a6a85', border:'none', cursor:'pointer'
-        }}>⚡ My Bids ({activeBids.length})</button>
         <button onClick={() => setTab('open')} style={{
           flex:1, padding:'10px', borderRadius:'10px', fontWeight:700, fontSize:'12px',
           background: tab==='open' ? '#1565C0' : '#F0F4FF',
           color: tab==='open' ? 'white' : '#5a6a85', border:'none', cursor:'pointer'
         }}>🔔 New ({requests.length})</button>
+        <button onClick={() => setTab('mybids')} style={{
+          flex:1, padding:'10px', borderRadius:'10px', fontWeight:700, fontSize:'12px',
+          background: tab==='mybids' ? '#FF6F00' : '#F0F4FF',
+          color: tab==='mybids' ? 'white' : '#5a6a85', border:'none', cursor:'pointer'
+        }}>⚡ My Bids ({activeBids.length})</button>
         <button onClick={() => setTab('history')} style={{
           flex:1, padding:'10px', borderRadius:'10px', fontWeight:700, fontSize:'12px',
           background: tab==='history' ? '#5a6a85' : '#F0F4FF',
@@ -333,15 +333,6 @@ export default function DriverDashboard({ profile, setProfile }) {
       </div>
 
       {loading && <div className="spinner"></div>}
-
-      {tab === 'mybids' && !loading && activeBids.length === 0 && (
-        <div className="empty-state">
-          <div className="icon">{tankerIcon}</div>
-          <p>No active bids yet.</p>
-          <p style={{fontSize:'13px', color:'#5a6a85'}}>Go to New tab to start bidding!</p>
-        </div>
-      )}
-      {tab === 'mybids' && !loading && activeBids.map(bid => <BidCard key={bid.id} bid={bid} />)}
 
       {tab === 'open' && !loading && requests.map(req => {
         const dist = getDistance(driverLat, driverLng, req.location_lat, req.location_lng)
@@ -420,6 +411,15 @@ export default function DriverDashboard({ profile, setProfile }) {
           <p style={{fontSize:'13px', color:'#5a6a85'}}>Increase your radius or wait for new requests!</p>
         </div>
       )}
+
+      {tab === 'mybids' && !loading && activeBids.length === 0 && (
+        <div className="empty-state">
+          <div className="icon">⚡</div>
+          <p>No active bids yet.</p>
+          <p style={{fontSize:'13px', color:'#5a6a85'}}>Go to New tab to start bidding!</p>
+        </div>
+      )}
+      {tab === 'mybids' && !loading && activeBids.map(bid => <BidCard key={bid.id} bid={bid} />)}
 
       {tab === 'history' && !loading && historyBids.length === 0 && (
         <div className="empty-state"><div className="icon">📋</div><p>No history yet.</p></div>
