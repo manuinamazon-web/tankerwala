@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
 export default function Register() {
-  const [form, setForm] = useState({ name:'', phone:'', email:'', password:'', role:'customer', tanker_type:'water' })
+  const [form, setForm] = useState({ name:'', phone:'', email:'', password:'', role:'customer', tanker_type:'water', area:'' })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
@@ -13,6 +13,11 @@ export default function Register() {
   async function handleRegister(e) {
     e.preventDefault()
     setLoading(true); setError('')
+
+    if (form.role === 'driver' && !form.area) {
+      setError('Please enter your operating area')
+      setLoading(false); return
+    }
 
     const { data, error: authError } = await supabase.auth.signUp({
       email: form.email,
@@ -29,6 +34,7 @@ export default function Register() {
       email: form.email,
       role: form.role,
       tanker_type: form.role === 'driver' ? form.tanker_type : null,
+      area: form.role === 'driver' ? form.area : null,
       wallet_balance: form.role === 'driver' ? 0 : null,
       is_active: form.role === 'driver' ? false : true,
     })
@@ -88,6 +94,20 @@ export default function Register() {
                 </button>
               </div>
             </div>
+
+            <div className="form-group">
+              <label style={{fontWeight:600, fontSize:'14px', color:'#1a2a4a'}}>Your Operating Area</label>
+              <input
+                placeholder="e.g. Horamavu, Whitefield, Bellandur..."
+                value={form.area}
+                onChange={e => update('area', e.target.value)}
+                required
+              />
+              <div style={{fontSize:'12px', color:'#5a6a85', marginTop:'4px'}}>
+                You will receive requests from customers near this area
+              </div>
+            </div>
+
             <div className="alert alert-info" style={{marginBottom:'16px'}}>
               Drivers must recharge ₹100 wallet to start bidding. ₹10 is deducted per accepted bid.
             </div>
