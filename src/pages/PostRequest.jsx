@@ -68,12 +68,15 @@ export default function PostRequest({ profile }) {
         setLng(pos.coords.longitude)
         setLocating(false)
         fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${pos.coords.latitude}&longitude=${pos.coords.longitude}&localityLanguage=en`)
-          .then(r => r.json())
-          .then(data => {
-            const area = data.locality || data.principalSubdivision || 'Current Location'
-            const city = data.city || ''
-            update('address', `${area}${city && city !== area ? ', ' + city : ''}`)
-          })
+  .then(r => r.json())
+  .then(data => {
+    const area = data.localityInfo?.administrative?.find(a => a.adminLevel === 8)?.name
+      || data.localityInfo?.administrative?.find(a => a.adminLevel === 7)?.name
+      || data.locality
+      || 'Current Location'
+    const city = data.city || data.principalSubdivision || ''
+    update('address', `${area}${city && city !== area ? ', ' + city : ''}`)
+  })
           .catch(() => {
             update('address', `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`)
           })
