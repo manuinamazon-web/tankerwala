@@ -17,6 +17,12 @@ function playSound(freq, vol, repeat) {
       }, i * 500)
     }
   } catch(e) {}
+  try {
+    if (navigator.vibrate) {
+      const pattern = Array.from({length: repeat}, () => [300, 200]).flat()
+      navigator.vibrate(pattern)
+    }
+  } catch(e) {}
 }
 
 function getDistance(lat1, lon1, lat2, lon2) {
@@ -45,6 +51,11 @@ export default function DriverDashboard({ profile, setProfile }) {
   const [savingRadius, setSavingRadius] = useState(false)
   const [soundEnabled, setSoundEnabled] = useState(false)
   const navigate = useNavigate()
+
+  const isWater = profile.tanker_type === 'water'
+  const tankerIcon = isWater ? '🚰' : '🚛'
+  const tankerLabel = isWater ? 'Water Tanker Driver' : 'Sewage Tanker Driver'
+  const tankerColor = isWater ? '#1565C0' : '#2E7D32'
 
   useEffect(() => {
     fetchData()
@@ -92,6 +103,7 @@ export default function DriverDashboard({ profile, setProfile }) {
       o.frequency.value = 440
       o.type = 'sine'
       o.start(); o.stop(ctx.currentTime + 0.3)
+      if (navigator.vibrate) navigator.vibrate([200, 100, 200])
       setSoundEnabled(true)
     } catch(e) {
       alert('Could not enable sound. Please check your browser settings.')
@@ -184,15 +196,14 @@ export default function DriverDashboard({ profile, setProfile }) {
   const activeBids = myBids.filter(b => b.status === 'pending' || b.status === 'accepted')
   const historyBids = myBids.filter(b => b.status === 'completed' || b.status === 'rejected')
 
-  const tankerLabel = profile.tanker_type === 'water' ? '💧 Water' : '🚽 Sewage'
-  const tankerColor = profile.tanker_type === 'water' ? '#1565C0' : '#2E7D32'
-
   function BidCard({ bid }) {
     return (
       <div className="card" style={{marginBottom:'12px'}}>
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
           <div style={{flex:1}}>
-            <div style={{fontWeight:700}}>{bid.requests?.tanker_type === 'water' ? '💧 Water' : '🚽 Sewage'} — {bid.requests?.capacity}L</div>
+            <div style={{fontWeight:700}}>
+              {bid.requests?.tanker_type === 'water' ? '🚰 Water' : '🚛 Sewage'} — {bid.requests?.capacity}L
+            </div>
             {bid.requests?.location_text && (
               <div style={{fontSize:'13px', color:'#5a6a85', marginTop:'2px'}}>🏘️ {bid.requests.location_text}</div>
             )}
@@ -203,7 +214,9 @@ export default function DriverDashboard({ profile, setProfile }) {
             )}
             <div style={{fontSize:'16px', fontWeight:800, color:'#1565C0', fontFamily:"'Baloo 2',cursive", marginTop:'4px'}}>₹{bid.price}</div>
             {bid.note && <div style={{fontSize:'12px', color:'#5a6a85'}}>📝 {bid.note}</div>}
-            <div style={{fontSize:'12px', color:'#5a6a85', marginTop:'4px'}}>🕐 {new Date(bid.created_at).toLocaleString('en-IN', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}</div>
+            <div style={{fontSize:'12px', color:'#5a6a85', marginTop:'4px'}}>
+              🕐 {new Date(bid.created_at).toLocaleString('en-IN', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}
+            </div>
           </div>
           <span style={{
             padding:'6px 12px', borderRadius:'20px', fontSize:'12px', fontWeight:600, marginLeft:'8px',
@@ -225,10 +238,11 @@ export default function DriverDashboard({ profile, setProfile }) {
   return (
     <div className="page">
       <div className="topbar">
-        <div>
-          <div className="topbar-logo">Tanker<span>Wala</span></div>
-          <div style={{fontSize:'12px', color:'#5a6a85'}}>
-            Driver — <span style={{color: tankerColor, fontWeight:600}}>{tankerLabel}</span>
+        <div style={{display:'flex', alignItems:'center', gap:'10px'}}>
+          <span style={{fontSize:'32px'}}>{tankerIcon}</span>
+          <div>
+            <div className="topbar-logo" style={{fontSize:'18px'}}>Tanker<span>Wala</span></div>
+            <div style={{fontSize:'12px', color: tankerColor, fontWeight:600}}>{tankerLabel}</div>
           </div>
         </div>
         <button className="logout-btn" onClick={logout}>Logout</button>
@@ -247,13 +261,13 @@ export default function DriverDashboard({ profile, setProfile }) {
           fontWeight:700, fontSize:'15px', cursor:'pointer',
           boxShadow:'0 4px 12px rgba(255,111,0,0.3)'
         }}>
-          🔔 Tap here to enable sound alerts
+          🔔 Tap here to enable sound & vibration alerts
         </button>
       )}
 
       {soundEnabled && (
         <div style={{background:'#E8F5E9', borderRadius:'8px', padding:'8px 12px', marginBottom:'12px', fontSize:'13px', color:'#2E7D32', textAlign:'center', fontWeight:600}}>
-          🔔 Sound alerts enabled ✅
+          🔔 Sound & vibration alerts enabled ✅
         </div>
       )}
 
@@ -281,7 +295,7 @@ export default function DriverDashboard({ profile, setProfile }) {
 
       <div style={{background:'white', borderRadius:'12px', padding:'14px', marginBottom:'16px', border:'1px solid #E8EEF8'}}>
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
-          <div style={{fontWeight:600, fontSize:'13px', color:'#1a2a4a'}}>🚛 My Service Radius</div>
+          <div style={{fontWeight:600, fontSize:'13px', color:'#1a2a4a'}}>📡 My Service Radius</div>
           <div style={{fontWeight:800, fontSize:'18px', color:'#1565C0'}}>{serviceRadius} km {savingRadius ? '⏳' : '✅'}</div>
         </div>
         <input
@@ -294,6 +308,9 @@ export default function DriverDashboard({ profile, setProfile }) {
           {[1,2,3,4,5,6,7,8,9,10].map(r => (
             <span key={r} style={{fontWeight: serviceRadius===r ? 700 : 400, color: serviceRadius===r ? '#1565C0' : '#5a6a85'}}>{r}</span>
           ))}
+        </div>
+        <div style={{fontSize:'11px', color:'#5a6a85', marginTop:'6px', textAlign:'center'}}>
+          Showing requests within {serviceRadius}km of your location
         </div>
       </div>
 
@@ -319,9 +336,9 @@ export default function DriverDashboard({ profile, setProfile }) {
 
       {tab === 'mybids' && !loading && activeBids.length === 0 && (
         <div className="empty-state">
-          <div className="icon">⚡</div>
+          <div className="icon">{tankerIcon}</div>
           <p>No active bids yet.</p>
-          <p style={{fontSize:'13px', color:'#5a6a85'}}>Go to New Requests tab to start bidding!</p>
+          <p style={{fontSize:'13px', color:'#5a6a85'}}>Go to New tab to start bidding!</p>
         </div>
       )}
       {tab === 'mybids' && !loading && activeBids.map(bid => <BidCard key={bid.id} bid={bid} />)}
@@ -337,7 +354,7 @@ export default function DriverDashboard({ profile, setProfile }) {
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'8px'}}>
               <div style={{display:'flex', gap:'6px', alignItems:'center'}}>
                 <span style={{background: req.tanker_type==='water' ? '#E3F2FD' : '#E8F5E9', color: req.tanker_type==='water' ? '#1565C0' : '#2E7D32', padding:'4px 10px', borderRadius:'20px', fontSize:'13px', fontWeight:600}}>
-                  {req.tanker_type === 'water' ? '💧 Water' : '🚽 Sewage'}
+                  {req.tanker_type === 'water' ? '🚰 Water' : '🚛 Sewage'}
                 </span>
                 <span style={{fontWeight:700, color:'#1565C0'}}>{req.capacity}L</span>
               </div>
@@ -398,7 +415,7 @@ export default function DriverDashboard({ profile, setProfile }) {
 
       {tab === 'open' && !loading && requests.length === 0 && (
         <div className="empty-state">
-          <div className="icon">{profile.tanker_type === 'water' ? '💧' : '🚽'}</div>
+          <div className="icon">{tankerIcon}</div>
           <p>No new requests within {serviceRadius}km.</p>
           <p style={{fontSize:'13px', color:'#5a6a85'}}>Increase your radius or wait for new requests!</p>
         </div>
