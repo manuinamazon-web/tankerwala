@@ -21,18 +21,26 @@ export default function PostRequest({ profile }) {
   const [loading, setLoading] = useState(false)
   const [nearbyDrivers, setNearbyDrivers] = useState(null)
   const [searchRadius, setSearchRadius] = useState(null)
-  const [gpsStatus, setGpsStatus] = useState('📍 Tap to get GPS coordinates')
+  const [gpsStatus, setGpsStatus] = useState('📍 Getting GPS...')
+  const [savedAddresses, setSavedAddresses] = useState([])
+  const [showSavePrompt, setShowSavePrompt] = useState(false)
+  const [saveLabel, setSaveLabel] = useState('')
   const navigate = useNavigate()
 
   function update(field, val) { setForm(f => ({...f, [field]: val})) }
 
-  // Silently get GPS in background when page loads
   useEffect(() => {
+    // Load saved addresses
+    if (profile.saved_addresses) {
+      setSavedAddresses(profile.saved_addresses)
+    }
+
+    // Silently get GPS in background
     navigator.geolocation?.getCurrentPosition(
       pos => {
         setLat(pos.coords.latitude)
         setLng(pos.coords.longitude)
-        setGpsStatus('✅ GPS location captured')
+        setGpsStatus('✅ GPS captured')
         checkNearbyDrivers(pos.coords.latitude, pos.coords.longitude, form.tanker_type)
       },
       () => setGpsStatus('⚠️ GPS unavailable'),
@@ -71,6 +79,35 @@ export default function PostRequest({ profile }) {
       setNearbyDrivers(tenKm.length)
       setSearchRadius(10)
     }
+  }
+
+  function selectSavedAddress(saved) {
+    update('address', saved.address)
+    if (saved.lat) setLat(saved.lat)
+    if (saved.lng) setLng(saved.lng)
+  }
+
+  async function saveAddress() {
+    if (!form.address.trim()) return
+    const label = saveLabel.trim() || 'Home'
+    const newAddress = {
+      label,
+      address: form.address,
+      lat, lng,
+      id: Date.now()
+    }
+    const updated = [...savedAddresses, newAddress]
+    setSavedAddresses(updated)
+    setShowSavePrompt(false)
+    setSaveLabel('')
+    await supabase.from('profiles').update({ saved_addresses: updated }).eq('id', profile.id)
+    alert(`✅ Address saved as "${label}"!`)
+  }
+
+  async function deleteAddress(id) {
+    const updated = savedAddresses.filter(a => a.id !== id)
+    setSavedAddresses(updated)
+    await supabase.from('profiles').update({ saved_addresses: updated }).eq('id', profile.id)
   }
 
   async function handleSubmit(e) {
@@ -141,6 +178,32 @@ export default function PostRequest({ profile }) {
 
           <div className="form-group">
             <label>📍 Delivery Location <span style={{color:'red'}}>*</span></label>
+
+            {savedAddresses.length > 0 && (
+              <div style={{marginBottom:'10px'}}>
+                <div style={{fontSize:'12px', color:'#5a6a85', marginBottom:'6px', fontWeight:600}}>
+                  🏠 Saved Addresses — tap to select:
+                </div>
+                {savedAddresses.map(saved => (
+                  <div key={saved.id} style={{display:'flex', alignItems:'center', gap:'6px', marginBottom:'6px'}}>
+                    <button type="button" onClick={() => selectSavedAddress(saved)} style={{
+                      flex:1, padding:'10px 12px', borderRadius:'8px', fontSize:'13px', fontWeight:600,
+                      background: form.address===saved.address ? '#E3F2FD' : '#F0F4FF',
+                      color: form.address===saved.address ? '#1565C0' : '#333',
+                      border: form.address===saved.address ? '2px solid #1565C0' : '1px solid #E8EEF8',
+                      textAlign:'left', cursor:'pointer'
+                    }}>
+                      {saved.label === 'Home' ? '🏠' : saved.label === 'Office' ? '🏢' : saved.label === 'Site' ? '🏗️' : '📍'} {saved.label} — {saved.address}
+                    </button>
+                    <button type="button" onClick={() => deleteAddress(saved.id)} style={{
+                      padding:'8px', borderRadius:'8px', background:'#FFEBEE',
+                      border:'none', color:'#C62828', cursor:'pointer', fontSize:'14px'
+                    }}>🗑️</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <input
               placeholder="Type your exact area e.g. Horamavu Agara, near Big Bazaar"
               value={form.address}
@@ -148,17 +211,50 @@ export default function PostRequest({ profile }) {
               required
               style={{marginBottom:'8px'}}
             />
+
             <div style={{
               background: lat ? '#E8F5E9' : '#FFF8E1',
               border: `1px solid ${lat ? '#A5D6A7' : '#FFE082'}`,
               borderRadius:'8px', padding:'8px 12px', fontSize:'12px',
-              color: lat ? '#2E7D32' : '#F57F17'
+              color: lat ? '#2E7D32' : '#F57F17', marginBottom:'8px'
             }}>
-              {gpsStatus} {lat ? `(${lat.toFixed(4)}, ${lng.toFixed(4)})` : ''}
+              {gpsStatus}
             </div>
-            <div style={{fontSize:'12px', color:'#5a6a85', marginTop:'6px'}}>
-              💡 Type your locality name above. GPS coordinates are saved automatically for driver navigation.
-            </div>
+
+            {form.address.trim() && !showSavePrompt && (
+              <button type="button" onClick={() => setShowSavePrompt(true)} style={{
+                width:'100%', padding:'10px', borderRadius:'8px', fontSize:'13px', fontWeight:600,
+                background:'#F0F4FF', color:'#1565C0', border:'1.5px solid #C5D5F0', cursor:'pointer'
+              }}>
+                💾 Save this address for next time
+              </button>
+            )}
+
+            {showSavePrompt && (
+              <div style={{background:'#F0F4FF', borderRadius:'10px', padding:'12px', marginTop:'8px'}}>
+                <div style={{fontSize:'13px', fontWeight:600, marginBottom:'8px', color:'#1a2a4a'}}>Save as:</div>
+                <div style={{display:'flex', gap:'6px', marginBottom:'8px'}}>
+                  {['Home', 'Office', 'Site', 'Other'].map(l => (
+                    <button key={l} type="button" onClick={() => setSaveLabel(l)} style={{
+                      flex:1, padding:'8px 4px', borderRadius:'8px', fontSize:'12px', fontWeight:600,
+                      background: saveLabel===l ? '#1565C0' : 'white',
+                      color: saveLabel===l ? 'white' : '#5a6a85',
+                      border: saveLabel===l ? 'none' : '1px solid #C5D5F0', cursor:'pointer'
+                    }}>{l === 'Home' ? '🏠' : l === 'Office' ? '🏢' : l === 'Site' ? '🏗️' : '📍'} {l}</button>
+                  ))}
+                </div>
+                <div style={{display:'flex', gap:'8px'}}>
+                  <button type="button" onClick={saveAddress} style={{
+                    flex:1, padding:'10px', borderRadius:'8px', background:'#1565C0',
+                    color:'white', border:'none', fontWeight:600, cursor:'pointer'
+                  }}>✅ Save</button>
+                  <button type="button" onClick={() => setShowSavePrompt(false)} style={{
+                    flex:1, padding:'10px', borderRadius:'8px', background:'#F0F4FF',
+                    color:'#5a6a85', border:'none', fontWeight:600, cursor:'pointer'
+                  }}>Cancel</button>
+                </div>
+              </div>
+            )}
           </div>
 
           {nearbyDrivers !== null && lat && (
@@ -175,11 +271,6 @@ export default function PostRequest({ profile }) {
                 <span style={{color:'#E65100'}}>
                   ⚠️ No {form.tanker_type} tanker drivers found within 10km. Your request will still be posted.
                 </span>
-              )}
-              {searchRadius === 10 && nearbyDrivers > 0 && (
-                <div style={{fontSize:'12px', color:'#E65100', marginTop:'4px'}}>
-                  ⚠️ No drivers within 5km. Showing drivers within 10km.
-                </div>
               )}
             </div>
           )}
