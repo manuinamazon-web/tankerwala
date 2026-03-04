@@ -2,21 +2,6 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
-let audioUnlocked = false
-
-function unlockAudio() {
-  if (audioUnlocked) return
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)()
-    const o = ctx.createOscillator()
-    const g = ctx.createGain()
-    g.gain.value = 0
-    o.connect(g); g.connect(ctx.destination)
-    o.start(); o.stop(ctx.currentTime + 0.001)
-    audioUnlocked = true
-  } catch(e) {}
-}
-
 function playSound(freq, vol, repeat) {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)()
@@ -58,6 +43,7 @@ export default function DriverDashboard({ profile, setProfile }) {
   const [locationStatus, setLocationStatus] = useState('Getting your location...')
   const [serviceRadius, setServiceRadius] = useState(profile.service_radius || 10)
   const [savingRadius, setSavingRadius] = useState(false)
+  const [soundEnabled, setSoundEnabled] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -95,6 +81,22 @@ export default function DriverDashboard({ profile, setProfile }) {
   useEffect(() => {
     fetchData()
   }, [serviceRadius, driverLat, driverLng])
+
+  function enableSound() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)()
+      const o = ctx.createOscillator()
+      const g = ctx.createGain()
+      g.gain.value = 0.3
+      o.connect(g); g.connect(ctx.destination)
+      o.frequency.value = 440
+      o.type = 'sine'
+      o.start(); o.stop(ctx.currentTime + 0.3)
+      setSoundEnabled(true)
+    } catch(e) {
+      alert('Could not enable sound. Please check your browser settings.')
+    }
+  }
 
   async function updateLocation() {
     if (!navigator.geolocation) return
@@ -183,7 +185,7 @@ export default function DriverDashboard({ profile, setProfile }) {
   const tankerColor = profile.tanker_type === 'water' ? '#1565C0' : '#2E7D32'
 
   return (
-    <div className="page" onClick={unlockAudio}>
+    <div className="page">
       <div className="topbar">
         <div>
           <div className="topbar-logo">Tanker<span>Wala</span></div>
@@ -198,6 +200,28 @@ export default function DriverDashboard({ profile, setProfile }) {
         <span>{locationStatus}</span>
         <span>📍 {profile.area || 'Not set'} • {serviceRadius}km</span>
       </div>
+
+      {!soundEnabled && (
+        <button onClick={enableSound} style={{
+          width:'100%', padding:'14px', marginBottom:'12px',
+          background:'linear-gradient(135deg, #FF6F00, #FF8F00)',
+          color:'white', border:'none', borderRadius:'12px',
+          fontWeight:700, fontSize:'15px', cursor:'pointer',
+          boxShadow:'0 4px 12px rgba(255,111,0,0.3)'
+        }}>
+          🔔 Tap here to enable sound alerts
+        </button>
+      )}
+
+      {soundEnabled && (
+        <div style={{
+          background:'#E8F5E9', borderRadius:'8px', padding:'8px 12px',
+          marginBottom:'12px', fontSize:'13px', color:'#2E7D32',
+          textAlign:'center', fontWeight:600
+        }}>
+          🔔 Sound alerts enabled ✅
+        </div>
+      )}
 
       <div className="card" style={{background:'linear-gradient(135deg, #1565C0, #1976D2)', color:'white', marginBottom:'16px'}}>
         <div style={{fontSize:'13px', opacity:0.85, marginBottom:'4px'}}>Wallet Balance</div>
