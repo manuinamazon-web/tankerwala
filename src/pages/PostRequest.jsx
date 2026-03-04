@@ -1,6 +1,17 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+
+function getDistance(lat1, lon1, lat2, lon2) {
+  if (!lat1 || !lon1 || !lat2 || !lon2) return null
+  const R = 6371
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon/2) * Math.sin(dLon/2)
+  return (R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))).toFixed(1)
+}
 
 export default function PostRequest({ profile }) {
   const [form, setForm] = useState({ tanker_type:'water', capacity:'', address:'', notes:'' })
@@ -9,9 +20,44 @@ export default function PostRequest({ profile }) {
   const [lng, setLng] = useState(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [nearbyDrivers, setNearbyDrivers] = useState(null)
+  const [searchRadius, setSearchRadius] = useState(null)
   const navigate = useNavigate()
 
   function update(field, val) { setForm(f => ({...f, [field]: val})) }
+
+  useEffect(() => {
+    if (lat && lng) checkNearbyDrivers(lat, lng, form.tanker_type)
+  }, [lat, lng, form.tanker_type])
+
+  async function checkNearbyDrivers(customerLat, customerLng, tankerType) {
+    const { data: drivers } = await supabase
+      .from('profiles')
+      .select('driver_lat, driver_lng, last_seen')
+      .eq('role', 'driver')
+      .eq('tanker_type', tankerType)
+      .eq('is_active', true)
+      .not('driver_lat', 'is', null)
+
+    if (!drivers) return
+
+    const fiveKm = drivers.filter(d => {
+      const dist = getDistance(customerLat, customerLng, d.driver_lat, d.driver_lng)
+      return dist && parseFloat(dist) <= 5
+    })
+
+    if (fiveKm.length > 0) {
+      setNearbyDrivers(fiveKm.length)
+      setSearchRadius(5)
+    } else {
+      const tenKm = drivers.filter(d => {
+        const dist = getDistance(customerLat, customerLng, d.driver_lat, d.driver_lng)
+        return dist && parseFloat(dist) <= 10
+      })
+      setNearbyDrivers(tenKm.length)
+      setSearchRadius(10)
+    }
+  }
 
   function getLocation() {
     setLocating(true)
@@ -43,7 +89,7 @@ export default function PostRequest({ profile }) {
   async function handleSubmit(e) {
     e.preventDefault()
     if (!form.capacity) { setError('Please select tank capacity'); return }
-    if (!form.address || form.address === 'Fetching area name...') { setError('Please enter your location'); return }
+    if (!form.address || form.address === 'Fetching area name...') { setError('Please wait for location or type your area'); return }
     setLoading(true); setError('')
 
     const { error } = await supabase.from('requests').insert({
@@ -114,10 +160,34 @@ export default function PostRequest({ profile }) {
             }}>
               {locating ? '⏳ Getting location...' : '📍 Use My Current Location'}
             </button>
+
+            {nearbyDrivers !== null && lat && (
+              <div style={{
+                background: nearbyDrivers > 0 ? '#E8F5E9' : '#FFF3E0',
+                border: `1px solid ${nearbyDrivers > 0 ? '#A5D6A7' : '#FFCC80'}`,
+                borderRadius:'8px', padding:'10px', marginBottom:'8px', fontSize:'13px'
+              }}>
+                {nearbyDrivers > 0 ? (
+                  <span style={{color:'#2E7D32'}}>
+                    ✅ <strong>{nearbyDrivers} {form.tanker_type} tanker driver{nearbyDrivers > 1 ? 's' : ''}</strong> available within {searchRadius}km!
+                  </span>
+                ) : (
+                  <span style={{color:'#E65100'}}>
+                    ⚠️ No {form.tanker_type} tanker drivers found within 10km. Your request will still be posted.
+                  </span>
+                )}
+                {searchRadius === 10 && nearbyDrivers > 0 && (
+                  <div style={{fontSize:'12px', color:'#E65100', marginTop:'4px'}}>
+                    ⚠️ No drivers within 5km. Showing drivers within 10km.
+                  </div>
+                )}
+              </div>
+            )}
+
             <input
               placeholder="Or type your area (e.g. Bellandur, Bengaluru)"
               value={form.address}
-              onChange={e=>update('address',e.target.value)}
+              onChange={e => update('address', e.target.value)}
             />
           </div>
 
