@@ -2,6 +2,21 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
+let audioUnlocked = false
+
+function unlockAudio() {
+  if (audioUnlocked) return
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)()
+    const o = ctx.createOscillator()
+    const g = ctx.createGain()
+    g.gain.value = 0
+    o.connect(g); g.connect(ctx.destination)
+    o.start(); o.stop(ctx.currentTime + 0.001)
+    audioUnlocked = true
+  } catch(e) {}
+}
+
 function playSound(freq, vol, repeat) {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)()
@@ -32,8 +47,8 @@ export default function CustomerDashboard({ profile }) {
         playSound(660, 0.4, 2)
         fetchRequests()
       })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'requests', filter: `customer_id=eq.${profile.id}` }, (payload) => {
-        if (payload.new?.status === 'accepted') {
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'requests' }, (payload) => {
+        if (payload.new?.customer_id === profile.id && payload.new?.status === 'accepted') {
           playSound(528, 0.4, 4)
         }
         fetchRequests()
@@ -65,7 +80,7 @@ export default function CustomerDashboard({ profile }) {
   }
 
   return (
-    <div className="page">
+    <div className="page" onClick={unlockAudio}>
       <div className="topbar">
         <div>
           <div className="topbar-logo">Tanker<span>Wala</span></div>
@@ -115,7 +130,9 @@ export default function CustomerDashboard({ profile }) {
           {req.status === 'accepted' && req.driver_phone && (
             <div style={{background:'#E8F5E9', borderRadius:'10px', padding:'12px', marginBottom:'12px'}}>
               <div style={{fontWeight:700, color:'#2E7D32', marginBottom:'4px'}}>✅ Bid accepted!</div>
-              <div style={{fontSize:'14px'}}>Call driver: <strong style={{color:'#1565C0'}}>{req.driver_phone}</strong></div>
+              <a href={`tel:${req.driver_phone}`} style={{fontSize:'14px', color:'#1565C0', fontWeight:700, textDecoration:'none'}}>
+                📞 Call Driver: {req.driver_phone}
+              </a>
             </div>
           )}
 
