@@ -57,6 +57,7 @@ export default function DriverDashboard({ profile, setProfile }) {
   const [driverLng, setDriverLng] = useState(profile.driver_lng || null)
   const [locationStatus, setLocationStatus] = useState('Getting your location...')
   const [serviceRadius, setServiceRadius] = useState(profile.service_radius || 10)
+  const [savingRadius, setSavingRadius] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -93,7 +94,7 @@ export default function DriverDashboard({ profile, setProfile }) {
 
   useEffect(() => {
     fetchData()
-  }, [serviceRadius])
+  }, [serviceRadius, driverLat, driverLng])
 
   async function updateLocation() {
     if (!navigator.geolocation) return
@@ -139,8 +140,11 @@ export default function DriverDashboard({ profile, setProfile }) {
 
   async function updateRadius(radius) {
     setServiceRadius(radius)
-    await supabase.from('profiles').update({ service_radius: radius }).eq('id', profile.id)
     if (setProfile) setProfile(p => ({...p, service_radius: radius}))
+    setSavingRadius(true)
+    await supabase.from('profiles').update({ service_radius: radius }).eq('id', profile.id)
+    setSavingRadius(false)
+    fetchData()
   }
 
   async function submitBid(requestId) {
@@ -198,156 +202,4 @@ export default function DriverDashboard({ profile, setProfile }) {
       <div className="card" style={{background:'linear-gradient(135deg, #1565C0, #1976D2)', color:'white', marginBottom:'16px'}}>
         <div style={{fontSize:'13px', opacity:0.85, marginBottom:'4px'}}>Wallet Balance</div>
         <div style={{fontFamily:"'Baloo 2',cursive", fontSize:'36px', fontWeight:800}}>₹{profile.wallet_balance || 0}</div>
-        <div style={{fontSize:'12px', opacity:0.75}}>₹10 deducted per accepted bid</div>
-        {!profile.is_active && (
-          <div style={{background:'rgba(255,255,255,0.15)', borderRadius:'8px', padding:'10px', marginTop:'12px', fontSize:'13px'}}>
-            ⚠️ Account inactive. Recharge ₹100 to start bidding.
-          </div>
-        )}
-        <div style={{display:'flex', gap:'8px', marginTop:'12px'}}>
-          <input
-            type="number" placeholder="Amount (min ₹100)"
-            value={rechargeAmount} onChange={e => setRechargeAmount(e.target.value)}
-            style={{flex:1, padding:'10px', borderRadius:'8px', border:'none', fontSize:'14px'}}
-          />
-          <button onClick={requestRecharge} style={{
-            padding:'10px 16px', background:'#FF6F00', color:'white',
-            borderRadius:'8px', border:'none', fontWeight:700, fontSize:'14px'
-          }}>Recharge</button>
-        </div>
-      </div>
-
-      <div style={{background:'white', borderRadius:'12px', padding:'12px', marginBottom:'16px', border:'1px solid #E8EEF8'}}>
-        <div style={{fontWeight:600, fontSize:'13px', color:'#1a2a4a', marginBottom:'8px'}}>🚛 My Service Radius</div>
-        <div style={{display:'flex', gap:'6px'}}>
-          {[5, 7, 10, 15, 20].map(r => (
-            <button key={r} onClick={() => updateRadius(r)} style={{
-              flex:1, padding:'8px 4px', borderRadius:'8px', fontSize:'13px', fontWeight:600,
-              background: serviceRadius===r ? '#1565C0' : '#F0F4FF',
-              color: serviceRadius===r ? 'white' : '#5a6a85',
-              border: 'none', cursor:'pointer'
-            }}>{r}km</button>
-          ))}
-        </div>
-        <div style={{fontSize:'11px', color:'#5a6a85', marginTop:'6px'}}>
-          You will see requests within {serviceRadius}km of your location
-        </div>
-      </div>
-
-      <div style={{display:'flex', gap:'8px', marginBottom:'16px'}}>
-        <button onClick={() => setTab('open')} style={{
-          flex:1, padding:'12px', borderRadius:'10px', fontWeight:700, fontSize:'14px',
-          background: tab==='open' ? '#1565C0' : '#F0F4FF',
-          color: tab==='open' ? 'white' : '#5a6a85', border:'none'
-        }}>🔔 Open Requests ({requests.length})</button>
-        <button onClick={() => setTab('mybids')} style={{
-          flex:1, padding:'12px', borderRadius:'10px', fontWeight:700, fontSize:'14px',
-          background: tab==='mybids' ? '#1565C0' : '#F0F4FF',
-          color: tab==='mybids' ? 'white' : '#5a6a85', border:'none'
-        }}>📋 My Bids ({myBids.length})</button>
-      </div>
-
-      {loading && <div className="spinner"></div>}
-
-      {tab === 'open' && !loading && requests.map(req => {
-        const dist = getDistance(driverLat, driverLng, req.location_lat, req.location_lng)
-        const mapsUrl = req.location_lat && req.location_lng
-          ? `https://www.google.com/maps?q=${req.location_lat},${req.location_lng}`
-          : `https://www.google.com/maps/search/${encodeURIComponent(req.location_text)}`
-        const alreadyBid = myBids.some(b => b.request_id === req.id)
-        return (
-          <div key={req.id} className="card" style={{marginBottom:'12px', opacity: alreadyBid ? 0.6 : 1}}>
-            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'8px'}}>
-              <div style={{display:'flex', gap:'6px', alignItems:'center'}}>
-                <span style={{background: req.tanker_type==='water' ? '#E3F2FD' : '#E8F5E9', color: req.tanker_type==='water' ? '#1565C0' : '#2E7D32', padding:'4px 10px', borderRadius:'20px', fontSize:'13px', fontWeight:600}}>
-                  {req.tanker_type === 'water' ? '💧 Water' : '🚽 Sewage'}
-                </span>
-                <span style={{fontWeight:700, color:'#1565C0'}}>{req.capacity}L</span>
-              </div>
-              {dist && (
-                <span style={{
-                  background: parseFloat(dist) <= 5 ? '#E8F5E9' : '#FFF3E0',
-                  color: parseFloat(dist) <= 5 ? '#2E7D32' : '#E65100',
-                  padding:'4px 10px', borderRadius:'20px', fontSize:'12px', fontWeight:600
-                }}>📏 {dist} km</span>
-              )}
-            </div>
-
-            <div style={{fontSize:'13px', color:'#5a6a85', marginBottom:'4px'}}>👤 {req.customer_name || 'Customer'}</div>
-
-            {req.location_text && (
-              <div style={{fontSize:'13px', color:'#333', marginBottom:'4px', fontWeight:600}}>🏘️ {req.location_text}</div>
-            )}
-
-            <a href={mapsUrl} target="_blank" rel="noreferrer" style={{
-              display:'inline-block', fontSize:'13px', color:'#1565C0', fontWeight:600,
-              marginBottom:'8px', textDecoration:'none'
-            }}>📍 View on Google Maps →</a>
-
-            <div style={{fontSize:'12px', color:'#5a6a85', marginBottom:'12px'}}>
-              🕐 {new Date(req.created_at).toLocaleString('en-IN', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}
-            </div>
-
-            {req.notes && (
-              <div style={{background:'#F8F9FA', borderRadius:'8px', padding:'8px', fontSize:'13px', marginBottom:'12px'}}>
-                📝 {req.notes}
-              </div>
-            )}
-
-            {alreadyBid ? (
-              <div style={{textAlign:'center', color:'#2E7D32', fontWeight:600, fontSize:'14px'}}>✅ You already bid on this</div>
-            ) : (
-              <>
-                <input
-                  type="number" placeholder="Your price (₹)"
-                  value={bidPrices[req.id] || ''}
-                  onChange={e => setBidPrices(p => ({...p, [req.id]: e.target.value}))}
-                  style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1.5px solid #C5D5F0', fontSize:'14px', marginBottom:'8px', boxSizing:'border-box'}}
-                />
-                <input
-                  type="text" placeholder="Optional note (e.g. can deliver in 1 hour)"
-                  value={bidNotes[req.id] || ''}
-                  onChange={e => setBidNotes(p => ({...p, [req.id]: e.target.value}))}
-                  style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1.5px solid #C5D5F0', fontSize:'14px', marginBottom:'8px', boxSizing:'border-box'}}
-                />
-                <button className="btn-primary" onClick={() => submitBid(req.id)}>
-                  🏷️ Submit Bid (₹10 on acceptance)
-                </button>
-              </>
-            )}
-          </div>
-        )
-      })}
-
-      {tab === 'open' && !loading && requests.length === 0 && (
-        <div className="empty-state">
-          <div className="icon">{profile.tanker_type === 'water' ? '💧' : '🚽'}</div>
-          <p>No requests within {serviceRadius}km of your area.</p>
-          <p style={{fontSize:'13px', color:'#5a6a85'}}>You'll hear a sound when new requests arrive!</p>
-        </div>
-      )}
-
-      {tab === 'mybids' && !loading && myBids.map(bid => (
-        <div key={bid.id} className="card" style={{marginBottom:'12px'}}>
-          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-            <div>
-              <div style={{fontWeight:700}}>{bid.requests?.tanker_type === 'water' ? '💧 Water' : '🚽 Sewage'} — {bid.requests?.capacity}L</div>
-              {bid.requests?.location_text && <div style={{fontSize:'13px', color:'#5a6a85'}}>🏘️ {bid.requests.location_text}</div>}
-              <div style={{fontSize:'16px', fontWeight:800, color:'#1565C0', fontFamily:"'Baloo 2',cursive"}}>₹{bid.price}</div>
-              <div style={{fontSize:'12px', color:'#5a6a85', marginTop:'4px'}}>🕐 {new Date(bid.created_at).toLocaleString('en-IN', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}</div>
-            </div>
-            <span style={{
-              padding:'6px 12px', borderRadius:'20px', fontSize:'12px', fontWeight:600,
-              background: bid.status==='accepted' ? '#E8F5E9' : bid.status==='rejected' ? '#FFEBEE' : '#FFF3E0',
-              color: bid.status==='accepted' ? '#2E7D32' : bid.status==='rejected' ? '#C62828' : '#E65100'
-            }}>{bid.status?.toUpperCase()}</span>
-          </div>
-        </div>
-      ))}
-
-      {tab === 'mybids' && !loading && myBids.length === 0 && (
-        <div className="empty-state"><div className="icon">📋</div><p>No bids submitted yet.</p></div>
-      )}
-    </div>
-  )
-}
+        <div style={{fo
