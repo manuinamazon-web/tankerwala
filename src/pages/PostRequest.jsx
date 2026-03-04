@@ -67,15 +67,18 @@ export default function PostRequest({ profile }) {
         setLat(pos.coords.latitude)
         setLng(pos.coords.longitude)
         setLocating(false)
-        fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${pos.coords.latitude}&longitude=${pos.coords.longitude}&localityLanguage=en`)
+        fetch(`https://nominatim.openstreetmap.org/reverse?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&format=json&accept-language=en`, {
+  headers: { 'User-Agent': 'TankerWala App' }
+})
   .then(r => r.json())
   .then(data => {
-    const area = data.localityInfo?.administrative?.find(a => a.adminLevel === 8)?.name
-      || data.localityInfo?.administrative?.find(a => a.adminLevel === 7)?.name
-      || data.locality
-      || 'Current Location'
-    const city = data.city || data.principalSubdivision || ''
+    const a = data.address
+    const area = a?.neighbourhood || a?.suburb || a?.quarter || a?.village || a?.town || a?.city_district || 'Current Location'
+    const city = a?.city || a?.town || ''
     update('address', `${area}${city && city !== area ? ', ' + city : ''}`)
+  })
+  .catch(() => {
+    update('address', `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`)
   })
           .catch(() => {
             update('address', `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`)
