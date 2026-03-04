@@ -56,9 +56,8 @@ export default function DriverDashboard({ profile, setProfile }) {
   const [driverLat, setDriverLat] = useState(profile.driver_lat || null)
   const [driverLng, setDriverLng] = useState(profile.driver_lng || null)
   const [locationStatus, setLocationStatus] = useState('Getting your location...')
+  const [serviceRadius, setServiceRadius] = useState(profile.service_radius || 10)
   const navigate = useNavigate()
-
-  const serviceRadius = profile.service_radius || 10
 
   useEffect(() => {
     fetchData()
@@ -68,7 +67,6 @@ export default function DriverDashboard({ profile, setProfile }) {
     const channel = supabase.channel('driver-live')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'requests' }, (payload) => {
         if (payload.new?.tanker_type === profile.tanker_type) {
-          // Check if request is within service radius
           const dist = getDistance(
             profile.driver_lat, profile.driver_lng,
             payload.new?.location_lat, payload.new?.location_lng
@@ -92,6 +90,10 @@ export default function DriverDashboard({ profile, setProfile }) {
       supabase.removeChannel(channel)
     }
   }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [serviceRadius])
 
   async function updateLocation() {
     if (!navigator.geolocation) return
@@ -120,13 +122,12 @@ export default function DriverDashboard({ profile, setProfile }) {
       supabase.from('bids').select('*, requests(*)').eq('driver_id', profile.id).order('created_at', { ascending: false })
     ])
 
-    // Filter requests within service radius
     const currentLat = driverLat || profile.driver_lat
     const currentLng = driverLng || profile.driver_lng
 
     const filteredReqs = (reqs || []).filter(req => {
-      if (!req.location_lat || !req.location_lng) return true // show if no coordinates
-      if (!currentLat || !currentLng) return true // show all if driver location unknown
+      if (!req.location_lat || !req.location_lng) return true
+      if (!currentLat || !currentLng) return true
       const dist = getDistance(currentLat, currentLng, req.location_lat, req.location_lng)
       return !dist || parseFloat(dist) <= serviceRadius
     })
@@ -134,6 +135,12 @@ export default function DriverDashboard({ profile, setProfile }) {
     setRequests(filteredReqs)
     setMyBids(bids || [])
     setLoading(false)
+  }
+
+  async function updateRadius(radius) {
+    setServiceRadius(radius)
+    await supabase.from('profiles').update({ service_radius: radius }).eq('id', profile.id)
+    if (setProfile) setProfile(p => ({...p, service_radius: radius}))
   }
 
   async function submitBid(requestId) {
@@ -185,10 +192,10 @@ export default function DriverDashboard({ profile, setProfile }) {
 
       <div style={{background:'#F0F4FF', borderRadius:'8px', padding:'8px 12px', marginBottom:'12px', fontSize:'12px', color:'#5a6a85', display:'flex', justifyContent:'space-between'}}>
         <span>{locationStatus}</span>
-        <span>📍 {profile.area || 'Not set'} • {serviceRadius}km radius</span>
+        <span>📍 {profile.area || 'Not set'} • {serviceRadius}km</span>
       </div>
 
-      <div className="card" style={{background:'linear-gradient(135deg, #1565C0, #1976D2)', color:'white', marginBottom:'20px'}}>
+      <div className="card" style={{background:'linear-gradient(135deg, #1565C0, #1976D2)', color:'white', marginBottom:'16px'}}>
         <div style={{fontSize:'13px', opacity:0.85, marginBottom:'4px'}}>Wallet Balance</div>
         <div style={{fontFamily:"'Baloo 2',cursive", fontSize:'36px', fontWeight:800}}>₹{profile.wallet_balance || 0}</div>
         <div style={{fontSize:'12px', opacity:0.75}}>₹10 deducted per accepted bid</div>
@@ -207,6 +214,23 @@ export default function DriverDashboard({ profile, setProfile }) {
             padding:'10px 16px', background:'#FF6F00', color:'white',
             borderRadius:'8px', border:'none', fontWeight:700, fontSize:'14px'
           }}>Recharge</button>
+        </div>
+      </div>
+
+      <div style={{background:'white', borderRadius:'12px', padding:'12px', marginBottom:'16px', border:'1px solid #E8EEF8'}}>
+        <div style={{fontWeight:600, fontSize:'13px', color:'#1a2a4a', marginBottom:'8px'}}>🚛 My Service Radius</div>
+        <div style={{display:'flex', gap:'6px'}}>
+          {[5, 7, 10, 15, 20].map(r => (
+            <button key={r} onClick={() => updateRadius(r)} style={{
+              flex:1, padding:'8px 4px', borderRadius:'8px', fontSize:'13px', fontWeight:600,
+              background: serviceRadius===r ? '#1565C0' : '#F0F4FF',
+              color: serviceRadius===r ? 'white' : '#5a6a85',
+              border: 'none', cursor:'pointer'
+            }}>{r}km</button>
+          ))}
+        </div>
+        <div style={{fontSize:'11px', color:'#5a6a85', marginTop:'6px'}}>
+          You will see requests within {serviceRadius}km of your location
         </div>
       </div>
 
