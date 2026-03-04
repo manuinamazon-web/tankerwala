@@ -40,14 +40,13 @@ export default function DriverDashboard({ profile, setProfile }) {
   const [loading, setLoading] = useState(true)
   const [driverLat, setDriverLat] = useState(null)
   const [driverLng, setDriverLng] = useState(null)
+  const [locationStatus, setLocationStatus] = useState('Getting your location...')
   const navigate = useNavigate()
 
   useEffect(() => {
     fetchData()
-    navigator.geolocation?.getCurrentPosition(pos => {
-      setDriverLat(pos.coords.latitude)
-      setDriverLng(pos.coords.longitude)
-    })
+    updateLocation()
+    const locationInterval = setInterval(updateLocation, 2 * 60 * 1000)
 
     const channel = supabase.channel('driver-requests')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'requests' }, (payload) => {
@@ -64,8 +63,29 @@ export default function DriverDashboard({ profile, setProfile }) {
       })
       .subscribe()
 
-    return () => supabase.removeChannel(channel)
+    return () => {
+      clearInterval(locationInterval)
+      supabase.removeChannel(channel)
+    }
   }, [])
+
+  async function updateLocation() {
+    if (!navigator.geolocation) return
+    navigator.geolocation.getCurrentPosition(async pos => {
+      const lat = pos.coords.latitude
+      const lng = pos.coords.longitude
+      setDriverLat(lat)
+      setDriverLng(lng)
+      setLocationStatus('📍 Location active')
+      await supabase.from('profiles').update({
+        driver_lat: lat,
+        driver_lng: lng,
+        last_seen: new Date().toISOString()
+      }).eq('id', profile.id)
+    }, () => {
+      setLocationStatus('⚠️ Location unavailable')
+    })
+  }
 
   async function fetchData() {
     const [{ data: reqs }, { data: bids }] = await Promise.all([
@@ -120,9 +140,16 @@ export default function DriverDashboard({ profile, setProfile }) {
       <div className="topbar">
         <div>
           <div className="topbar-logo">Tanker<span>Wala</span></div>
-          <div style={{fontSize:'12px', color:'#5a6a85'}}>Driver — <span style={{color: tankerColor, fontWeight:600}}>{tankerLabel} Tanker</span></div>
+          <div style={{fontSize:'12px', color:'#5a6a85'}}>
+            Driver — <span style={{color: tankerColor, fontWeight:600}}>{tankerLabel}</span>
+          </div>
         </div>
         <button className="logout-btn" onClick={logout}>Logout</button>
+      </div>
+
+      <div style={{background:'#F0F4FF', borderRadius:'8px', padding:'8px 12px', marginBottom:'12px', fontSize:'12px', color:'#5a6a85', display:'flex', justifyContent:'space-between'}}>
+        <span>{locationStatus}</span>
+        <span>Area: {profile.area || 'Not set'}</span>
       </div>
 
       <div className="card" style={{background:'linear-gradient(135deg, #1565C0, #1976D2)', color:'white', marginBottom:'20px'}}>
@@ -175,7 +202,7 @@ export default function DriverDashboard({ profile, setProfile }) {
                 </span>
                 <span style={{fontWeight:700, color:'#1565C0'}}>{req.capacity}L</span>
               </div>
-              {dist && <span style={{background:'#FFF3E0', color:'#E65100', padding:'4px 10px', borderRadius:'20px', fontSize:'12px', fontWeight:600}}>📏 {dist} km</span>}
+              {dist && <span style={{background: parseFloat(dist) <= 5 ? '#E8F5E9' : '#FFF3E0', color: parseFloat(dist) <= 5 ? '#2E7D32' : '#E65100', padding:'4px 10px', borderRadius:'20px', fontSize:'12px', fontWeight:600}}>📏 {dist} km</span>}
             </div>
 
             <div style={{fontSize:'13px', color:'#5a6a85', marginBottom:'4px'}}>👤 {req.customer_name || 'Customer'}</div>
@@ -194,64 +221,4 @@ export default function DriverDashboard({ profile, setProfile }) {
             </div>
 
             {req.notes && (
-              <div style={{background:'#F8F9FA', borderRadius:'8px', padding:'8px', fontSize:'13px', marginBottom:'12px'}}>
-                📝 {req.notes}
-              </div>
-            )}
-
-            {alreadyBid ? (
-              <div style={{textAlign:'center', color:'#2E7D32', fontWeight:600, fontSize:'14px'}}>✅ You already bid on this</div>
-            ) : (
-              <>
-                <input
-                  type="number" placeholder="Your price (₹)"
-                  value={bidPrices[req.id] || ''}
-                  onChange={e => setBidPrices(p => ({...p, [req.id]: e.target.value}))}
-                  style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1.5px solid #C5D5F0', fontSize:'14px', marginBottom:'8px', boxSizing:'border-box'}}
-                />
-                <input
-                  type="text" placeholder="Optional note (e.g. can deliver in 1 hour)"
-                  value={bidNotes[req.id] || ''}
-                  onChange={e => setBidNotes(p => ({...p, [req.id]: e.target.value}))}
-                  style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1.5px solid #C5D5F0', fontSize:'14px', marginBottom:'8px', boxSizing:'border-box'}}
-                />
-                <button className="btn-primary" onClick={() => submitBid(req.id)}>
-                  🏷️ Submit Bid (₹10 on acceptance)
-                </button>
-              </>
-            )}
-          </div>
-        )
-      })}
-
-      {tab === 'open' && !loading && requests.length === 0 && (
-        <div className="empty-state">
-          <div className="icon">{profile.tanker_type === 'water' ? '💧' : '🚽'}</div>
-          <p>No open {profile.tanker_type} tanker requests right now.</p>
-        </div>
-      )}
-
-      {tab === 'mybids' && !loading && myBids.map(bid => (
-        <div key={bid.id} className="card" style={{marginBottom:'12px'}}>
-          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-            <div>
-              <div style={{fontWeight:700}}>{bid.requests?.tanker_type === 'water' ? '💧 Water' : '🚽 Sewage'} — {bid.requests?.capacity}L</div>
-              {bid.requests?.location_text && <div style={{fontSize:'13px', color:'#5a6a85'}}>🏘️ {bid.requests.location_text}</div>}
-              <div style={{fontSize:'16px', fontWeight:800, color:'#1565C0', fontFamily:"'Baloo 2',cursive"}}>₹{bid.price}</div>
-              <div style={{fontSize:'12px', color:'#5a6a85', marginTop:'4px'}}>🕐 {new Date(bid.created_at).toLocaleString('en-IN', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}</div>
-            </div>
-            <span style={{
-              padding:'6px 12px', borderRadius:'20px', fontSize:'12px', fontWeight:600,
-              background: bid.status==='accepted' ? '#E8F5E9' : bid.status==='rejected' ? '#FFEBEE' : '#FFF3E0',
-              color: bid.status==='accepted' ? '#2E7D32' : bid.status==='rejected' ? '#C62828' : '#E65100'
-            }}>{bid.status?.toUpperCase()}</span>
-          </div>
-        </div>
-      ))}
-
-      {tab === 'mybids' && !loading && myBids.length === 0 && (
-        <div className="empty-state"><div className="icon">📋</div><p>No bids submitted yet.</p></div>
-      )}
-    </div>
-  )
-}
+              <div style={{background:'#F8F9FA', borderRadius:'8px', padding:'
