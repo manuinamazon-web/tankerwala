@@ -15,21 +15,26 @@ export default function PostRequest({ profile }) {
 
   function getLocation() {
     setLocating(true)
+    update('address', 'Fetching area name...')
     navigator.geolocation.getCurrentPosition(
       pos => {
         setLat(pos.coords.latitude)
         setLng(pos.coords.longitude)
         setLocating(false)
-        fetch(`https://nominatim.openstreetmap.org/reverse?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&format=json`)
+        fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${pos.coords.latitude}&longitude=${pos.coords.longitude}&localityLanguage=en`)
           .then(r => r.json())
           .then(data => {
-            const area = data.address?.suburb || data.address?.neighbourhood || data.address?.village || data.address?.county || 'Current Location'
-            const city = data.address?.city || data.address?.town || ''
-            update('address', `${area}${city ? ', ' + city : ''}`)
+            const area = data.locality || data.principalSubdivision || 'Current Location'
+            const city = data.city || ''
+            update('address', `${area}${city && city !== area ? ', ' + city : ''}`)
+          })
+          .catch(() => {
+            update('address', `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`)
           })
       },
       () => {
         setLocating(false)
+        update('address', '')
         setError('Could not get location. Please type your address.')
       }
     )
@@ -38,7 +43,7 @@ export default function PostRequest({ profile }) {
   async function handleSubmit(e) {
     e.preventDefault()
     if (!form.capacity) { setError('Please select tank capacity'); return }
-    if (!form.address) { setError('Please enter your location'); return }
+    if (!form.address || form.address === 'Fetching area name...') { setError('Please enter your location'); return }
     setLoading(true); setError('')
 
     const { error } = await supabase.from('requests').insert({
@@ -92,4 +97,45 @@ export default function PostRequest({ profile }) {
             <label>Tank Capacity (Litres)</label>
             <select value={form.capacity} onChange={e=>update('capacity',e.target.value)} required>
               <option value="">Select capacity</option>
-              <option value="3000">3,000 Litre
+              <option value="3000">3,000 Litres</option>
+              <option value="5000">5,000 Litres</option>
+              <option value="6000">6,000 Litres</option>
+              <option value="8000">8,000 Litres</option>
+              <option value="10000">10,000 Litres</option>
+              <option value="12000">12,000 Litres</option>
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label>Your Location</label>
+            <button type="button" onClick={getLocation} disabled={locating} style={{
+              width:'100%', background:'#E3F2FD', color:'#1565C0', border:'2px solid #BBDEFB',
+              padding:'12px', borderRadius:'10px', fontWeight:600, marginBottom:'8px', cursor:'pointer'
+            }}>
+              {locating ? '⏳ Getting location...' : '📍 Use My Current Location'}
+            </button>
+            <input
+              placeholder="Or type your area (e.g. Bellandur, Bengaluru)"
+              value={form.address}
+              onChange={e=>update('address',e.target.value)}
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Additional Notes (Optional)</label>
+            <textarea
+              placeholder="E.g. Gate code, landmark, best time to deliver..."
+              value={form.notes}
+              onChange={e=>update('notes',e.target.value)}
+              style={{height:'80px', resize:'none'}}
+            />
+          </div>
+
+          <button className="btn-primary" type="submit" disabled={loading}>
+            {loading ? 'Posting...' : '🚀 Post Request — Get Bids'}
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
