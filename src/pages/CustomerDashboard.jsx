@@ -2,21 +2,6 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
-let audioUnlocked = false
-
-function unlockAudio() {
-  if (audioUnlocked) return
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)()
-    const o = ctx.createOscillator()
-    const g = ctx.createGain()
-    g.gain.value = 0
-    o.connect(g); g.connect(ctx.destination)
-    o.start(); o.stop(ctx.currentTime + 0.001)
-    audioUnlocked = true
-  } catch(e) {}
-}
-
 function playSound(freq, vol, repeat) {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)()
@@ -37,6 +22,7 @@ function playSound(freq, vol, repeat) {
 export default function CustomerDashboard({ profile }) {
   const [requests, setRequests] = useState([])
   const [loading, setLoading] = useState(true)
+  const [soundEnabled, setSoundEnabled] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -68,6 +54,22 @@ export default function CustomerDashboard({ profile }) {
     setLoading(false)
   }
 
+  function enableSound() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)()
+      const o = ctx.createOscillator()
+      const g = ctx.createGain()
+      g.gain.value = 0.3
+      o.connect(g); g.connect(ctx.destination)
+      o.frequency.value = 660
+      o.type = 'sine'
+      o.start(); o.stop(ctx.currentTime + 0.3)
+      setSoundEnabled(true)
+    } catch(e) {
+      alert('Could not enable sound. Please check your browser settings.')
+    }
+  }
+
   async function logout() {
     await supabase.auth.signOut()
     navigate('/')
@@ -80,7 +82,7 @@ export default function CustomerDashboard({ profile }) {
   }
 
   return (
-    <div className="page" onClick={unlockAudio}>
+    <div className="page">
       <div className="topbar">
         <div>
           <div className="topbar-logo">Tanker<span>Wala</span></div>
@@ -88,6 +90,28 @@ export default function CustomerDashboard({ profile }) {
         </div>
         <button className="logout-btn" onClick={logout}>Logout</button>
       </div>
+
+      {!soundEnabled && (
+        <button onClick={enableSound} style={{
+          width:'100%', padding:'14px', marginBottom:'12px',
+          background:'linear-gradient(135deg, #FF6F00, #FF8F00)',
+          color:'white', border:'none', borderRadius:'12px',
+          fontWeight:700, fontSize:'15px', cursor:'pointer',
+          boxShadow:'0 4px 12px rgba(255,111,0,0.3)'
+        }}>
+          🔔 Tap here to enable sound alerts
+        </button>
+      )}
+
+      {soundEnabled && (
+        <div style={{
+          background:'#E8F5E9', borderRadius:'8px', padding:'8px 12px',
+          marginBottom:'12px', fontSize:'13px', color:'#2E7D32',
+          textAlign:'center', fontWeight:600
+        }}>
+          🔔 Sound alerts enabled ✅
+        </div>
+      )}
 
       <button className="btn-primary" style={{marginBottom:'20px'}} onClick={() => navigate('/customer/post')}>
         + Post New Tanker Request
