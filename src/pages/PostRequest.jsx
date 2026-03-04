@@ -33,7 +33,7 @@ export default function PostRequest({ profile }) {
   async function checkNearbyDrivers(customerLat, customerLng, tankerType) {
     const { data: drivers } = await supabase
       .from('profiles')
-      .select('driver_lat, driver_lng, last_seen')
+      .select('driver_lat, driver_lng')
       .eq('role', 'driver')
       .eq('tanker_type', tankerType)
       .eq('is_active', true)
@@ -61,41 +61,47 @@ export default function PostRequest({ profile }) {
 
   function getLocation() {
     setLocating(true)
-    update('address', 'Fetching area name...')
+    update('address', 'Fetching location...')
     navigator.geolocation.getCurrentPosition(
       pos => {
-        setLat(pos.coords.latitude)
-        setLng(pos.coords.longitude)
+        const latitude = pos.coords.latitude
+        const longitude = pos.coords.longitude
+        setLat(latitude)
+        setLng(longitude)
         setLocating(false)
-        fetch(`https://nominatim.openstreetmap.org/reverse?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&format=json&accept-language=en`, {
-  headers: { 'User-Agent': 'TankerWala App' }
-})
-  .then(r => r.json())
-  .then(data => {
-    const a = data.address
-    const area = a?.neighbourhood || a?.suburb || a?.quarter || a?.village || a?.town || a?.city_district || 'Current Location'
-    const city = a?.city || a?.town || ''
-    update('address', `${area}${city && city !== area ? ', ' + city : ''}`)
-  })
-  .catch(() => {
-    update('address', `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`)
-  })
+
+        // Try multiple geocoding approaches
+        fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&zoom=16&addressdetails=1`, {
+          headers: { 'User-Agent': 'TankerWala/1.0 (tankerwala.vercel.app)' }
+        })
+          .then(r => r.json())
+          .then(data => {
+            const a = data.address || {}
+            const area = a.neighbourhood || a.suburb || a.residential || a.quarter || a.hamlet || a.village || a.city_district || a.district || a.county || ''
+            const city = a.city || a.town || a.state_district || ''
+            if (area) {
+              update('address', `${area}${city && city !== area ? ', ' + city : ''}`)
+            } else {
+              update('address', city || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`)
+            }
+          })
           .catch(() => {
-            update('address', `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`)
+            update('address', `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`)
           })
       },
       () => {
         setLocating(false)
         update('address', '')
         setError('Could not get location. Please type your address.')
-      }
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
     )
   }
 
   async function handleSubmit(e) {
     e.preventDefault()
     if (!form.capacity) { setError('Please select tank capacity'); return }
-    if (!form.address || form.address === 'Fetching area name...') { setError('Please wait for location or type your area'); return }
+    if (!form.address || form.address === 'Fetching location...') { setError('Please wait for location or type your area'); return }
     setLoading(true); setError('')
 
     const { error } = await supabase.from('requests').insert({
