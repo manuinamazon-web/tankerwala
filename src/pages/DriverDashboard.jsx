@@ -181,8 +181,48 @@ export default function DriverDashboard({ profile, setProfile }) {
     navigate('/')
   }
 
+  const activeBids = myBids.filter(b => b.status === 'pending')
+  const acceptedBids = myBids.filter(b => b.status === 'accepted')
+  const completedBids = myBids.filter(b => b.status === 'completed')
+  const rejectedBids = myBids.filter(b => b.status === 'rejected')
+
   const tankerLabel = profile.tanker_type === 'water' ? '💧 Water' : '🚽 Sewage'
   const tankerColor = profile.tanker_type === 'water' ? '#1565C0' : '#2E7D32'
+
+  function BidCard({ bid }) {
+    return (
+      <div className="card" style={{marginBottom:'12px'}}>
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:700}}>{bid.requests?.tanker_type === 'water' ? '💧 Water' : '🚽 Sewage'} — {bid.requests?.capacity}L</div>
+            {bid.requests?.location_text && (
+              <div style={{fontSize:'13px', color:'#5a6a85', marginTop:'2px'}}>🏘️ {bid.requests.location_text}</div>
+            )}
+            {bid.requests?.location_lat && bid.requests?.location_lng && (
+              <a href={`https://www.google.com/maps?q=${bid.requests.location_lat},${bid.requests.location_lng}`} target="_blank" rel="noreferrer" style={{fontSize:'12px', color:'#1565C0', fontWeight:600, textDecoration:'none'}}>
+                📍 View on Google Maps →
+              </a>
+            )}
+            <div style={{fontSize:'16px', fontWeight:800, color:'#1565C0', fontFamily:"'Baloo 2',cursive", marginTop:'4px'}}>₹{bid.price}</div>
+            {bid.note && <div style={{fontSize:'12px', color:'#5a6a85'}}>📝 {bid.note}</div>}
+            <div style={{fontSize:'12px', color:'#5a6a85', marginTop:'4px'}}>🕐 {new Date(bid.created_at).toLocaleString('en-IN', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}</div>
+          </div>
+          <span style={{
+            padding:'6px 12px', borderRadius:'20px', fontSize:'12px', fontWeight:600, marginLeft:'8px',
+            background: bid.status==='accepted' ? '#E8F5E9' : bid.status==='rejected' ? '#FFEBEE' : bid.status==='completed' ? '#E3F2FD' : '#FFF3E0',
+            color: bid.status==='accepted' ? '#2E7D32' : bid.status==='rejected' ? '#C62828' : bid.status==='completed' ? '#1565C0' : '#E65100'
+          }}>{bid.status?.toUpperCase()}</span>
+        </div>
+        {bid.status === 'accepted' && bid.requests?.customer_phone && (
+          <div style={{background:'#E8F5E9', borderRadius:'8px', padding:'10px', marginTop:'10px'}}>
+            <a href={`tel:${bid.requests.customer_phone}`} style={{fontSize:'14px', color:'#1565C0', fontWeight:700, textDecoration:'none'}}>
+              📞 Call Customer: {bid.requests.customer_phone}
+            </a>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="page">
@@ -214,11 +254,7 @@ export default function DriverDashboard({ profile, setProfile }) {
       )}
 
       {soundEnabled && (
-        <div style={{
-          background:'#E8F5E9', borderRadius:'8px', padding:'8px 12px',
-          marginBottom:'12px', fontSize:'13px', color:'#2E7D32',
-          textAlign:'center', fontWeight:600
-        }}>
+        <div style={{background:'#E8F5E9', borderRadius:'8px', padding:'8px 12px', marginBottom:'12px', fontSize:'13px', color:'#2E7D32', textAlign:'center', fontWeight:600}}>
           🔔 Sound alerts enabled ✅
         </div>
       )}
@@ -251,8 +287,7 @@ export default function DriverDashboard({ profile, setProfile }) {
           <div style={{fontWeight:800, fontSize:'18px', color:'#1565C0'}}>{serviceRadius} km {savingRadius ? '⏳' : '✅'}</div>
         </div>
         <input
-          type="range"
-          min="1" max="10" step="1"
+          type="range" min="1" max="10" step="1"
           value={serviceRadius}
           onChange={e => updateRadius(parseInt(e.target.value))}
           style={{width:'100%', marginBottom:'6px', accentColor:'#1565C0', height:'6px'}}
@@ -262,22 +297,29 @@ export default function DriverDashboard({ profile, setProfile }) {
             <span key={r} style={{fontWeight: serviceRadius===r ? 700 : 400, color: serviceRadius===r ? '#1565C0' : '#5a6a85'}}>{r}</span>
           ))}
         </div>
-        <div style={{fontSize:'11px', color:'#5a6a85', marginTop:'6px', textAlign:'center'}}>
-          Showing requests within {serviceRadius}km of your location
-        </div>
       </div>
 
-      <div style={{display:'flex', gap:'8px', marginBottom:'16px'}}>
+      <div style={{display:'flex', gap:'6px', marginBottom:'16px'}}>
         <button onClick={() => setTab('open')} style={{
-          flex:1, padding:'12px', borderRadius:'10px', fontWeight:700, fontSize:'14px',
+          flex:1, padding:'10px', borderRadius:'10px', fontWeight:700, fontSize:'12px',
           background: tab==='open' ? '#1565C0' : '#F0F4FF',
-          color: tab==='open' ? 'white' : '#5a6a85', border:'none'
-        }}>🔔 Open Requests ({requests.length})</button>
-        <button onClick={() => setTab('mybids')} style={{
-          flex:1, padding:'12px', borderRadius:'10px', fontWeight:700, fontSize:'14px',
-          background: tab==='mybids' ? '#1565C0' : '#F0F4FF',
-          color: tab==='mybids' ? 'white' : '#5a6a85', border:'none'
-        }}>📋 My Bids ({myBids.length})</button>
+          color: tab==='open' ? 'white' : '#5a6a85', border:'none', cursor:'pointer'
+        }}>🔔 Open ({requests.length})</button>
+        <button onClick={() => setTab('active')} style={{
+          flex:1, padding:'10px', borderRadius:'10px', fontWeight:700, fontSize:'12px',
+          background: tab==='active' ? '#FF6F00' : '#F0F4FF',
+          color: tab==='active' ? 'white' : '#5a6a85', border:'none', cursor:'pointer'
+        }}>⚡ Active ({activeBids.length})</button>
+        <button onClick={() => setTab('accepted')} style={{
+          flex:1, padding:'10px', borderRadius:'10px', fontWeight:700, fontSize:'12px',
+          background: tab==='accepted' ? '#2E7D32' : '#F0F4FF',
+          color: tab==='accepted' ? 'white' : '#5a6a85', border:'none', cursor:'pointer'
+        }}>✅ Won ({acceptedBids.length})</button>
+        <button onClick={() => setTab('history')} style={{
+          flex:1, padding:'10px', borderRadius:'10px', fontWeight:700, fontSize:'12px',
+          background: tab==='history' ? '#5a6a85' : '#F0F4FF',
+          color: tab==='history' ? 'white' : '#5a6a85', border:'none', cursor:'pointer'
+        }}>📋 History</button>
       </div>
 
       {loading && <div className="spinner"></div>}
@@ -355,32 +397,25 @@ export default function DriverDashboard({ profile, setProfile }) {
       {tab === 'open' && !loading && requests.length === 0 && (
         <div className="empty-state">
           <div className="icon">{profile.tanker_type === 'water' ? '💧' : '🚽'}</div>
-          <p>No requests within {serviceRadius}km of your area.</p>
+          <p>No requests within {serviceRadius}km.</p>
           <p style={{fontSize:'13px', color:'#5a6a85'}}>Increase your radius or wait for new requests!</p>
         </div>
       )}
 
-      {tab === 'mybids' && !loading && myBids.map(bid => (
-        <div key={bid.id} className="card" style={{marginBottom:'12px'}}>
-          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-            <div>
-              <div style={{fontWeight:700}}>{bid.requests?.tanker_type === 'water' ? '💧 Water' : '🚽 Sewage'} — {bid.requests?.capacity}L</div>
-              {bid.requests?.location_text && <div style={{fontSize:'13px', color:'#5a6a85'}}>🏘️ {bid.requests.location_text}</div>}
-              <div style={{fontSize:'16px', fontWeight:800, color:'#1565C0', fontFamily:"'Baloo 2',cursive"}}>₹{bid.price}</div>
-              <div style={{fontSize:'12px', color:'#5a6a85', marginTop:'4px'}}>🕐 {new Date(bid.created_at).toLocaleString('en-IN', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}</div>
-            </div>
-            <span style={{
-              padding:'6px 12px', borderRadius:'20px', fontSize:'12px', fontWeight:600,
-              background: bid.status==='accepted' ? '#E8F5E9' : bid.status==='rejected' ? '#FFEBEE' : '#FFF3E0',
-              color: bid.status==='accepted' ? '#2E7D32' : bid.status==='rejected' ? '#C62828' : '#E65100'
-            }}>{bid.status?.toUpperCase()}</span>
-          </div>
-        </div>
-      ))}
-
-      {tab === 'mybids' && !loading && myBids.length === 0 && (
-        <div className="empty-state"><div className="icon">📋</div><p>No bids submitted yet.</p></div>
+      {tab === 'active' && !loading && activeBids.length === 0 && (
+        <div className="empty-state"><div className="icon">⚡</div><p>No active bids.</p><p style={{fontSize:'13px', color:'#5a6a85'}}>Submit bids on open requests!</p></div>
       )}
+      {tab === 'active' && !loading && activeBids.map(bid => <BidCard key={bid.id} bid={bid} />)}
+
+      {tab === 'accepted' && !loading && acceptedBids.length === 0 && (
+        <div className="empty-state"><div className="icon">✅</div><p>No accepted bids yet.</p></div>
+      )}
+      {tab === 'accepted' && !loading && acceptedBids.map(bid => <BidCard key={bid.id} bid={bid} />)}
+
+      {tab === 'history' && !loading && [...completedBids, ...rejectedBids].length === 0 && (
+        <div className="empty-state"><div className="icon">📋</div><p>No history yet.</p></div>
+      )}
+      {tab === 'history' && !loading && [...completedBids, ...rejectedBids].map(bid => <BidCard key={bid.id} bid={bid} />)}
     </div>
   )
 }
