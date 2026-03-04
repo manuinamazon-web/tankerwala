@@ -48,20 +48,22 @@ export default function DriverDashboard({ profile, setProfile }) {
     updateLocation()
     const locationInterval = setInterval(updateLocation, 2 * 60 * 1000)
 
-    const channel = supabase.channel('driver-requests')
+    const channel = supabase.channel('driver-live')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'requests' }, (payload) => {
         if (payload.new?.tanker_type === profile.tanker_type) {
           playSound(440, 0.4, 4)
           fetchData()
         }
       })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bids', filter: `driver_id=eq.${profile.id}` }, (payload) => {
-        if (payload.new?.status === 'accepted') {
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bids' }, (payload) => {
+        if (payload.new?.driver_id === profile.id && payload.new?.status === 'accepted') {
           playSound(880, 0.4, 3)
           fetchData()
         }
       })
-      .subscribe()
+      .subscribe((status) => {
+        console.log('Driver channel status:', status)
+      })
 
     return () => {
       clearInterval(locationInterval)
