@@ -15,20 +15,34 @@ function getDistance(lat1, lon1, lat2, lon2) {
 
 export default function PostRequest({ profile }) {
   const [form, setForm] = useState({ tanker_type:'water', capacity:'', address:'', notes:'' })
-  const [locating, setLocating] = useState(false)
   const [lat, setLat] = useState(null)
   const [lng, setLng] = useState(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [nearbyDrivers, setNearbyDrivers] = useState(null)
   const [searchRadius, setSearchRadius] = useState(null)
+  const [gpsStatus, setGpsStatus] = useState('📍 Tap to get GPS coordinates')
   const navigate = useNavigate()
 
   function update(field, val) { setForm(f => ({...f, [field]: val})) }
 
+  // Silently get GPS in background when page loads
+  useEffect(() => {
+    navigator.geolocation?.getCurrentPosition(
+      pos => {
+        setLat(pos.coords.latitude)
+        setLng(pos.coords.longitude)
+        setGpsStatus('✅ GPS location captured')
+        checkNearbyDrivers(pos.coords.latitude, pos.coords.longitude, form.tanker_type)
+      },
+      () => setGpsStatus('⚠️ GPS unavailable'),
+      { enableHighAccuracy: true, timeout: 10000 }
+    )
+  }, [])
+
   useEffect(() => {
     if (lat && lng) checkNearbyDrivers(lat, lng, form.tanker_type)
-  }, [lat, lng, form.tanker_type])
+  }, [form.tanker_type])
 
   async function checkNearbyDrivers(customerLat, customerLng, tankerType) {
     const { data: drivers } = await supabase
@@ -59,49 +73,10 @@ export default function PostRequest({ profile }) {
     }
   }
 
-  function getLocation() {
-    setLocating(true)
-    update('address', 'Fetching location...')
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        const latitude = pos.coords.latitude
-        const longitude = pos.coords.longitude
-        setLat(latitude)
-        setLng(longitude)
-        setLocating(false)
-
-        // Try multiple geocoding approaches
-        fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&zoom=16&addressdetails=1`, {
-          headers: { 'User-Agent': 'TankerWala/1.0 (tankerwala.vercel.app)' }
-        })
-          .then(r => r.json())
-          .then(data => {
-            const a = data.address || {}
-            const area = a.neighbourhood || a.suburb || a.residential || a.quarter || a.hamlet || a.village || a.city_district || a.district || a.county || ''
-            const city = a.city || a.town || a.state_district || ''
-            if (area) {
-              update('address', `${area}${city && city !== area ? ', ' + city : ''}`)
-            } else {
-              update('address', city || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`)
-            }
-          })
-          .catch(() => {
-            update('address', `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`)
-          })
-      },
-      () => {
-        setLocating(false)
-        update('address', '')
-        setError('Could not get location. Please type your address.')
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    )
-  }
-
   async function handleSubmit(e) {
     e.preventDefault()
     if (!form.capacity) { setError('Please select tank capacity'); return }
-    if (!form.address || form.address === 'Fetching location...') { setError('Please wait for location or type your area'); return }
+    if (!form.address.trim()) { setError('Please type your delivery location'); return }
     setLoading(true); setError('')
 
     const { error } = await supabase.from('requests').insert({
@@ -165,43 +140,49 @@ export default function PostRequest({ profile }) {
           </div>
 
           <div className="form-group">
-            <label>Your Location</label>
-            <button type="button" onClick={getLocation} disabled={locating} style={{
-              width:'100%', background:'#E3F2FD', color:'#1565C0', border:'2px solid #BBDEFB',
-              padding:'12px', borderRadius:'10px', fontWeight:600, marginBottom:'8px', cursor:'pointer'
-            }}>
-              {locating ? '⏳ Getting location...' : '📍 Use My Current Location'}
-            </button>
-
-            {nearbyDrivers !== null && lat && (
-              <div style={{
-                background: nearbyDrivers > 0 ? '#E8F5E9' : '#FFF3E0',
-                border: `1px solid ${nearbyDrivers > 0 ? '#A5D6A7' : '#FFCC80'}`,
-                borderRadius:'8px', padding:'10px', marginBottom:'8px', fontSize:'13px'
-              }}>
-                {nearbyDrivers > 0 ? (
-                  <span style={{color:'#2E7D32'}}>
-                    ✅ <strong>{nearbyDrivers} {form.tanker_type} tanker driver{nearbyDrivers > 1 ? 's' : ''}</strong> available within {searchRadius}km!
-                  </span>
-                ) : (
-                  <span style={{color:'#E65100'}}>
-                    ⚠️ No {form.tanker_type} tanker drivers found within 10km. Your request will still be posted.
-                  </span>
-                )}
-                {searchRadius === 10 && nearbyDrivers > 0 && (
-                  <div style={{fontSize:'12px', color:'#E65100', marginTop:'4px'}}>
-                    ⚠️ No drivers within 5km. Showing drivers within 10km.
-                  </div>
-                )}
-              </div>
-            )}
-
+            <label>📍 Delivery Location <span style={{color:'red'}}>*</span></label>
             <input
-              placeholder="Or type your area (e.g. Bellandur, Bengaluru)"
+              placeholder="Type your exact area e.g. Horamavu Agara, near Big Bazaar"
               value={form.address}
               onChange={e => update('address', e.target.value)}
+              required
+              style={{marginBottom:'8px'}}
             />
+            <div style={{
+              background: lat ? '#E8F5E9' : '#FFF8E1',
+              border: `1px solid ${lat ? '#A5D6A7' : '#FFE082'}`,
+              borderRadius:'8px', padding:'8px 12px', fontSize:'12px',
+              color: lat ? '#2E7D32' : '#F57F17'
+            }}>
+              {gpsStatus} {lat ? `(${lat.toFixed(4)}, ${lng.toFixed(4)})` : ''}
+            </div>
+            <div style={{fontSize:'12px', color:'#5a6a85', marginTop:'6px'}}>
+              💡 Type your locality name above. GPS coordinates are saved automatically for driver navigation.
+            </div>
           </div>
+
+          {nearbyDrivers !== null && lat && (
+            <div style={{
+              background: nearbyDrivers > 0 ? '#E8F5E9' : '#FFF3E0',
+              border: `1px solid ${nearbyDrivers > 0 ? '#A5D6A7' : '#FFCC80'}`,
+              borderRadius:'8px', padding:'10px', marginBottom:'16px', fontSize:'13px'
+            }}>
+              {nearbyDrivers > 0 ? (
+                <span style={{color:'#2E7D32'}}>
+                  ✅ <strong>{nearbyDrivers} {form.tanker_type} tanker driver{nearbyDrivers > 1 ? 's' : ''}</strong> available within {searchRadius}km!
+                </span>
+              ) : (
+                <span style={{color:'#E65100'}}>
+                  ⚠️ No {form.tanker_type} tanker drivers found within 10km. Your request will still be posted.
+                </span>
+              )}
+              {searchRadius === 10 && nearbyDrivers > 0 && (
+                <div style={{fontSize:'12px', color:'#E65100', marginTop:'4px'}}>
+                  ⚠️ No drivers within 5km. Showing drivers within 10km.
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="form-group">
             <label>Additional Notes (Optional)</label>
