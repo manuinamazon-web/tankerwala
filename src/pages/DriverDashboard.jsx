@@ -2,6 +2,21 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
+let audioUnlocked = false
+
+function unlockAudio() {
+  if (audioUnlocked) return
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)()
+    const o = ctx.createOscillator()
+    const g = ctx.createGain()
+    g.gain.value = 0
+    o.connect(g); g.connect(ctx.destination)
+    o.start(); o.stop(ctx.currentTime + 0.001)
+    audioUnlocked = true
+  } catch(e) {}
+}
+
 function playSound(freq, vol, repeat) {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)()
@@ -61,9 +76,7 @@ export default function DriverDashboard({ profile, setProfile }) {
           fetchData()
         }
       })
-      .subscribe((status) => {
-        console.log('Driver channel status:', status)
-      })
+      .subscribe()
 
     return () => {
       clearInterval(locationInterval)
@@ -85,7 +98,7 @@ export default function DriverDashboard({ profile, setProfile }) {
         last_seen: new Date().toISOString()
       }).eq('id', profile.id)
     }, () => {
-      setLocationStatus('⚠️ Location unavailable')
+      setLocationStatus('⚠️ Location unavailable — please allow location access')
     })
   }
 
@@ -138,7 +151,7 @@ export default function DriverDashboard({ profile, setProfile }) {
   const tankerColor = profile.tanker_type === 'water' ? '#1565C0' : '#2E7D32'
 
   return (
-    <div className="page">
+    <div className="page" onClick={unlockAudio}>
       <div className="topbar">
         <div>
           <div className="topbar-logo">Tanker<span>Wala</span></div>
@@ -226,62 +239,3 @@ export default function DriverDashboard({ profile, setProfile }) {
               <div style={{background:'#F8F9FA', borderRadius:'8px', padding:'8px', fontSize:'13px', marginBottom:'12px'}}>
                 📝 {req.notes}
               </div>
-            )}
-
-            {alreadyBid ? (
-              <div style={{textAlign:'center', color:'#2E7D32', fontWeight:600, fontSize:'14px'}}>✅ You already bid on this</div>
-            ) : (
-              <>
-                <input
-                  type="number" placeholder="Your price (₹)"
-                  value={bidPrices[req.id] || ''}
-                  onChange={e => setBidPrices(p => ({...p, [req.id]: e.target.value}))}
-                  style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1.5px solid #C5D5F0', fontSize:'14px', marginBottom:'8px', boxSizing:'border-box'}}
-                />
-                <input
-                  type="text" placeholder="Optional note (e.g. can deliver in 1 hour)"
-                  value={bidNotes[req.id] || ''}
-                  onChange={e => setBidNotes(p => ({...p, [req.id]: e.target.value}))}
-                  style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1.5px solid #C5D5F0', fontSize:'14px', marginBottom:'8px', boxSizing:'border-box'}}
-                />
-                <button className="btn-primary" onClick={() => submitBid(req.id)}>
-                  🏷️ Submit Bid (₹10 on acceptance)
-                </button>
-              </>
-            )}
-          </div>
-        )
-      })}
-
-      {tab === 'open' && !loading && requests.length === 0 && (
-        <div className="empty-state">
-          <div className="icon">{profile.tanker_type === 'water' ? '💧' : '🚽'}</div>
-          <p>No open {profile.tanker_type} tanker requests right now.</p>
-          <p style={{fontSize:'13px', color:'#5a6a85'}}>You'll hear a sound when new requests arrive!</p>
-        </div>
-      )}
-
-      {tab === 'mybids' && !loading && myBids.map(bid => (
-        <div key={bid.id} className="card" style={{marginBottom:'12px'}}>
-          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-            <div>
-              <div style={{fontWeight:700}}>{bid.requests?.tanker_type === 'water' ? '💧 Water' : '🚽 Sewage'} — {bid.requests?.capacity}L</div>
-              {bid.requests?.location_text && <div style={{fontSize:'13px', color:'#5a6a85'}}>🏘️ {bid.requests.location_text}</div>}
-              <div style={{fontSize:'16px', fontWeight:800, color:'#1565C0', fontFamily:"'Baloo 2',cursive"}}>₹{bid.price}</div>
-              <div style={{fontSize:'12px', color:'#5a6a85', marginTop:'4px'}}>🕐 {new Date(bid.created_at).toLocaleString('en-IN', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}</div>
-            </div>
-            <span style={{
-              padding:'6px 12px', borderRadius:'20px', fontSize:'12px', fontWeight:600,
-              background: bid.status==='accepted' ? '#E8F5E9' : bid.status==='rejected' ? '#FFEBEE' : '#FFF3E0',
-              color: bid.status==='accepted' ? '#2E7D32' : bid.status==='rejected' ? '#C62828' : '#E65100'
-            }}>{bid.status?.toUpperCase()}</span>
-          </div>
-        </div>
-      ))}
-
-      {tab === 'mybids' && !loading && myBids.length === 0 && (
-        <div className="empty-state"><div className="icon">📋</div><p>No bids submitted yet.</p></div>
-      )}
-    </div>
-  )
-}
