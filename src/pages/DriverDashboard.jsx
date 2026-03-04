@@ -76,8 +76,10 @@ export default function DriverDashboard({ profile, setProfile }) {
         }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bids' }, (payload) => {
-        if (payload.new?.driver_id === profile.id && payload.new?.status === 'accepted') {
-          playSound(880, 0.4, 3)
+        if (payload.new?.driver_id === profile.id) {
+          if (payload.new?.status === 'accepted') {
+            playSound(880, 0.4, 3)
+          }
           fetchData()
         }
       })
@@ -193,8 +195,9 @@ export default function DriverDashboard({ profile, setProfile }) {
     navigate('/')
   }
 
-  const activeBids = myBids.filter(b => b.status === 'pending' || b.status === 'accepted')
-  const historyBids = myBids.filter(b => b.status === 'completed' || b.status === 'rejected')
+  const newBids = myBids.filter(b => b.status === 'pending')
+  const acceptedBids = myBids.filter(b => b.status === 'accepted')
+  const rejectedBids = myBids.filter(b => b.status === 'rejected')
 
   function BidCard({ bid }) {
     return (
@@ -208,7 +211,9 @@ export default function DriverDashboard({ profile, setProfile }) {
               <div style={{fontSize:'13px', color:'#5a6a85', marginTop:'2px'}}>🏘️ {bid.requests.location_text}</div>
             )}
             {bid.requests?.location_lat && bid.requests?.location_lng && (
-              <a href={`https://www.google.com/maps?q=${bid.requests.location_lat},${bid.requests.location_lng}`} target="_blank" rel="noreferrer" style={{fontSize:'12px', color:'#1565C0', fontWeight:600, textDecoration:'none'}}>
+              <a href={`https://www.google.com/maps?q=${bid.requests.location_lat},${bid.requests.location_lng}`}
+                target="_blank" rel="noreferrer"
+                style={{fontSize:'12px', color:'#1565C0', fontWeight:600, textDecoration:'none'}}>
                 📍 View on Google Maps →
               </a>
             )}
@@ -220,15 +225,23 @@ export default function DriverDashboard({ profile, setProfile }) {
           </div>
           <span style={{
             padding:'6px 12px', borderRadius:'20px', fontSize:'12px', fontWeight:600, marginLeft:'8px',
-            background: bid.status==='accepted' ? '#E8F5E9' : bid.status==='rejected' ? '#FFEBEE' : bid.status==='completed' ? '#E3F2FD' : '#FFF3E0',
-            color: bid.status==='accepted' ? '#2E7D32' : bid.status==='rejected' ? '#C62828' : bid.status==='completed' ? '#1565C0' : '#E65100'
+            background: bid.status==='accepted' ? '#E8F5E9' : bid.status==='rejected' ? '#FFEBEE' : '#FFF3E0',
+            color: bid.status==='accepted' ? '#2E7D32' : bid.status==='rejected' ? '#C62828' : '#E65100'
           }}>{bid.status?.toUpperCase()}</span>
         </div>
         {bid.status === 'accepted' && bid.requests?.customer_phone && (
           <div style={{background:'#E8F5E9', borderRadius:'8px', padding:'10px', marginTop:'10px'}}>
+            <div style={{fontSize:'13px', color:'#2E7D32', fontWeight:700, marginBottom:'4px'}}>
+              🎉 Your bid was accepted!
+            </div>
             <a href={`tel:${bid.requests.customer_phone}`} style={{fontSize:'14px', color:'#1565C0', fontWeight:700, textDecoration:'none'}}>
               📞 Call Customer: {bid.requests.customer_phone}
             </a>
+          </div>
+        )}
+        {bid.status === 'rejected' && (
+          <div style={{background:'#FFEBEE', borderRadius:'8px', padding:'8px 10px', marginTop:'8px', fontSize:'12px', color:'#C62828'}}>
+            😔 Customer chose another driver for this request.
           </div>
         )}
       </div>
@@ -320,16 +333,16 @@ export default function DriverDashboard({ profile, setProfile }) {
           background: tab==='open' ? '#1565C0' : '#F0F4FF',
           color: tab==='open' ? 'white' : '#5a6a85', border:'none', cursor:'pointer'
         }}>🔔 New ({requests.length})</button>
-        <button onClick={() => setTab('mybids')} style={{
+        <button onClick={() => setTab('accepted')} style={{
           flex:1, padding:'10px', borderRadius:'10px', fontWeight:700, fontSize:'12px',
-          background: tab==='mybids' ? '#FF6F00' : '#F0F4FF',
-          color: tab==='mybids' ? 'white' : '#5a6a85', border:'none', cursor:'pointer'
-        }}>⚡ My Bids ({activeBids.length})</button>
-        <button onClick={() => setTab('history')} style={{
+          background: tab==='accepted' ? '#2E7D32' : '#F0F4FF',
+          color: tab==='accepted' ? 'white' : '#5a6a85', border:'none', cursor:'pointer'
+        }}>✅ Accepted ({acceptedBids.length})</button>
+        <button onClick={() => setTab('rejected')} style={{
           flex:1, padding:'10px', borderRadius:'10px', fontWeight:700, fontSize:'12px',
-          background: tab==='history' ? '#5a6a85' : '#F0F4FF',
-          color: tab==='history' ? 'white' : '#5a6a85', border:'none', cursor:'pointer'
-        }}>📋 History ({historyBids.length})</button>
+          background: tab==='rejected' ? '#C62828' : '#F0F4FF',
+          color: tab==='rejected' ? 'white' : '#5a6a85', border:'none', cursor:'pointer'
+        }}>❌ Rejected ({rejectedBids.length})</button>
       </div>
 
       {loading && <div className="spinner"></div>}
@@ -380,7 +393,7 @@ export default function DriverDashboard({ profile, setProfile }) {
             )}
 
             {alreadyBid ? (
-              <div style={{textAlign:'center', color:'#2E7D32', fontWeight:600, fontSize:'14px'}}>✅ You already bid on this</div>
+              <div style={{textAlign:'center', color:'#2E7D32', fontWeight:600, fontSize:'14px'}}>✅ Bid submitted — waiting for customer</div>
             ) : (
               <>
                 <input
@@ -412,19 +425,22 @@ export default function DriverDashboard({ profile, setProfile }) {
         </div>
       )}
 
-      {tab === 'mybids' && !loading && activeBids.length === 0 && (
+      {tab === 'accepted' && !loading && acceptedBids.length === 0 && (
         <div className="empty-state">
-          <div className="icon">⚡</div>
-          <p>No active bids yet.</p>
-          <p style={{fontSize:'13px', color:'#5a6a85'}}>Go to New tab to start bidding!</p>
+          <div className="icon">✅</div>
+          <p>No accepted bids yet.</p>
+          <p style={{fontSize:'13px', color:'#5a6a85'}}>Keep bidding — your first win is coming!</p>
         </div>
       )}
-      {tab === 'mybids' && !loading && activeBids.map(bid => <BidCard key={bid.id} bid={bid} />)}
+      {tab === 'accepted' && !loading && acceptedBids.map(bid => <BidCard key={bid.id} bid={bid} />)}
 
-      {tab === 'history' && !loading && historyBids.length === 0 && (
-        <div className="empty-state"><div className="icon">📋</div><p>No history yet.</p></div>
+      {tab === 'rejected' && !loading && rejectedBids.length === 0 && (
+        <div className="empty-state">
+          <div className="icon">👍</div>
+          <p>No rejected bids!</p>
+        </div>
       )}
-      {tab === 'history' && !loading && historyBids.map(bid => <BidCard key={bid.id} bid={bid} />)}
+      {tab === 'rejected' && !loading && rejectedBids.map(bid => <BidCard key={bid.id} bid={bid} />)}
     </div>
   )
 }
