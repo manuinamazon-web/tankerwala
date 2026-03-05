@@ -27,6 +27,14 @@ function playSound(freq, vol, repeat) {
   } catch(e) {}
 }
 
+const DELIVERY_STATUS_INFO = {
+  pending:    { label: 'Waiting for driver',   icon: '⏳', color: '#E65100', bg: '#FFF3E0' },
+  loading:    { label: 'Driver is loading water', icon: '🔄', color: '#FF6F00', bg: '#FFF8E1' },
+  on_the_way: { label: 'Driver is on the way!', icon: '🚛', color: '#1565C0', bg: '#E3F2FD' },
+  arrived:    { label: 'Driver has arrived!',   icon: '📍', color: '#2E7D32', bg: '#E8F5E9' },
+  completed:  { label: 'Delivered!',            icon: '✅', color: '#1565C0', bg: '#E3F2FD' },
+}
+
 export default function CustomerDashboard({ profile }) {
   const [tab, setTab] = useState('active')
   const [requests, setRequests] = useState([])
@@ -34,9 +42,9 @@ export default function CustomerDashboard({ profile }) {
   const [loading, setLoading] = useState(true)
   const [notification, setNotification] = useState(null)
   const audioUnlocked = useRef(false)
+  const prevDeliveryStatus = useRef({})
   const navigate = useNavigate()
 
-  // Unlock audio on first touch/click/scroll — mandatory
   useEffect(() => {
     function unlock() {
       if (audioUnlocked.current) return
@@ -65,7 +73,7 @@ export default function CustomerDashboard({ profile }) {
     fetchBidCounts()
 
     const channel = supabase.channel('customer-dashboard-' + profile.id)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bids' }, (payload) => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bids' }, () => {
         fetchRequests()
         fetchBidCounts()
         playSound(660, 0.4, 2)
@@ -75,21 +83,36 @@ export default function CustomerDashboard({ profile }) {
         fetchRequests()
         fetchBidCounts()
         if (payload.new?.customer_id === profile.id) {
-          if (payload.new?.status === 'accepted') {
+          const newStatus = payload.new?.status
+          const oldStatus = payload.old?.status
+          const newDelivery = payload.new?.delivery_status
+          const oldDelivery = payload.old?.delivery_status
+
+          // Request status changes
+          if (newStatus === 'accepted' && oldStatus !== 'accepted') {
             playSound(528, 0.4, 4)
             showNotification('✅ Bid accepted! Share OTP with driver on arrival.')
           }
-          if (payload.new?.status === 'pending' && payload.old?.status === 'accepted') {
+          if (newStatus === 'pending' && oldStatus === 'accepted') {
             playSound(440, 0.4, 3)
             showNotification('⚠️ Driver cancelled! Please choose another bid.')
           }
-          if (payload.new?.status === 'completed') {
+          if (newStatus === 'completed') {
             playSound(528, 0.4, 4)
             showNotification('🎉 Delivery completed successfully!')
           }
+
+          // Delivery status changes
+          if (newDelivery !== oldDelivery) {
+            const info = DELIVERY_STATUS_INFO[newDelivery]
+            if (info) {
+              playSound(660, 0.3, 2)
+              showNotification(`${info.icon} ${info.label}`)
+            }
+          }
         }
       })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bids' }, (payload) => {
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bids' }, () => {
         fetchRequests()
         fetchBidCounts()
       })
@@ -150,6 +173,40 @@ export default function CustomerDashboard({ profile }) {
   const completedRequests = requests.filter(r => r.status === 'completed')
   const cancelledRequests = requests.filter(r => r.status === 'cancelled' || r.status === 'expired')
 
+  function DeliveryStatusBar({ req }) {
+    const stages = ['loading', 'on_the_way', 'arrived', 'completed']
+    const currentIdx = stages.indexOf(req.delivery_status)
+    const info = DELIVERY_STATUS_INFO[req.delivery_status] || DELIVERY_STATUS_INFO['pending']
+
+    if (req.status !== 'accepted' && req.status !== 'completed') return null
+
+    return (
+      <div style={{background: info.bg, borderRadius:'10px', padding:'12px', marginBottom:'12px'}}>
+        <div style={{display:'flex', alignItems:'center', gap:'8px', marginBottom:'10px'}}>
+          <span style={{fontSize:'20px'}}>{info.icon}</span>
+          <span style={{fontWeight:700, fontSize:'14px', color: info.color}}>{info.label}</span>
+        </div>
+        <div style={{display:'flex', gap:'4px'}}>
+          {stages.map((stage, idx) => (
+            <div key={stage} style={{
+              flex:1, height:'6px', borderRadius:'4px',
+              background: idx <= currentIdx ? info.color : '#E0E0E0',
+              transition: 'background 0.3s ease'
+            }} />
+          ))}
+        </div>
+        <div style={{display:'flex', justifyContent:'space-between', marginTop:'6px'}}>
+          {['Loading','On Way','Arrived','Done'].map((label, idx) => (
+            <span key={label} style={{
+              fontSize:'10px', fontWeight: idx <= currentIdx ? 700 : 400,
+              color: idx <= currentIdx ? info.color : '#9E9E9E'
+            }}>{label}</span>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   function RequestCard({ req }) {
     const bidCount = bidCounts[req.id] || 0
     return (
@@ -177,6 +234,9 @@ export default function CustomerDashboard({ profile }) {
         <div style={{fontSize:'12px', color:'#5a6a85', marginBottom:'12px'}}>
           🕐 {new Date(req.created_at).toLocaleString('en-IN', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}
         </div>
+
+        {/* Live delivery status bar */}
+        <DeliveryStatusBar req={req} />
 
         {req.status === 'pending' && (
           <div style={{
@@ -208,14 +268,19 @@ export default function CustomerDashboard({ profile }) {
                 📞 Call Driver: {req.driver_phone}
               </a>
             )}
-            {req.otp && (
+            {req.otp && (req.delivery_status === 'arrived' || req.delivery_status === 'completed') && (
               <div style={{background:'#1565C0', borderRadius:'10px', padding:'12px', textAlign:'center'}}>
                 <div style={{fontSize:'12px', color:'rgba(255,255,255,0.8)', marginBottom:'4px'}}>
-                  Share OTP with driver on arrival
+                  Share OTP with driver
                 </div>
                 <div style={{fontSize:'36px', fontWeight:900, color:'white', letterSpacing:'8px', fontFamily:"'Baloo 2',cursive"}}>
                   {req.otp}
                 </div>
+              </div>
+            )}
+            {req.otp && req.delivery_status !== 'arrived' && req.delivery_status !== 'completed' && (
+              <div style={{background:'#F0F4FF', borderRadius:'10px', padding:'10px', textAlign:'center', fontSize:'13px', color:'#5a6a85'}}>
+                🔒 OTP will be shown when driver arrives
               </div>
             )}
           </div>
