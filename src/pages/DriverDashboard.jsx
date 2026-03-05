@@ -1,10 +1,18 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
+let audioCtx = null
+
+function getAudioContext() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+  if (audioCtx.state === 'suspended') audioCtx.resume()
+  return audioCtx
+}
+
 function playSound(freq, vol, repeat) {
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)()
+    const ctx = getAudioContext()
     for(let i = 0; i < repeat; i++) {
       setTimeout(() => {
         const o = ctx.createOscillator()
@@ -58,17 +66,42 @@ export default function DriverDashboard({ profile, setProfile }) {
   const [locationStatus, setLocationStatus] = useState('Getting your location...')
   const [serviceRadius, setServiceRadius] = useState(profile.service_radius || 10)
   const [savingRadius, setSavingRadius] = useState(false)
-  const [soundEnabled, setSoundEnabled] = useState(false)
   const [cancelModal, setCancelModal] = useState(null)
   const [withdrawModal, setWithdrawModal] = useState(null)
   const [actionLoading, setActionLoading] = useState(false)
   const [notification, setNotification] = useState(null)
+  const audioUnlocked = useRef(false)
   const navigate = useNavigate()
 
   const isWater = profile.tanker_type === 'water'
   const tankerIcon = isWater ? '🚰' : '🚛'
   const tankerLabel = isWater ? 'Water Tanker Driver' : 'Sewage Tanker Driver'
   const tankerColor = isWater ? '#1565C0' : '#2E7D32'
+
+  // Unlock audio on first touch/click/scroll — mandatory
+  useEffect(() => {
+    function unlock() {
+      if (audioUnlocked.current) return
+      try {
+        const ctx = getAudioContext()
+        const o = ctx.createOscillator()
+        const g = ctx.createGain()
+        g.gain.value = 0
+        o.connect(g); g.connect(ctx.destination)
+        o.start(); o.stop(ctx.currentTime + 0.001)
+        if (navigator.vibrate) navigator.vibrate(1)
+        audioUnlocked.current = true
+      } catch(e) {}
+    }
+    document.addEventListener('touchstart', unlock, { once: true })
+    document.addEventListener('click', unlock, { once: true })
+    document.addEventListener('scroll', unlock, { once: true })
+    return () => {
+      document.removeEventListener('touchstart', unlock)
+      document.removeEventListener('click', unlock)
+      document.removeEventListener('scroll', unlock)
+    }
+  }, [])
 
   useEffect(() => {
     fetchData()
@@ -114,23 +147,6 @@ export default function DriverDashboard({ profile, setProfile }) {
   function showNotification(msg) {
     setNotification(msg)
     setTimeout(() => setNotification(null), 5000)
-  }
-
-  function enableSound() {
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)()
-      const o = ctx.createOscillator()
-      const g = ctx.createGain()
-      g.gain.value = 0.3
-      o.connect(g); g.connect(ctx.destination)
-      o.frequency.value = 440
-      o.type = 'sine'
-      o.start(); o.stop(ctx.currentTime + 0.3)
-      if (navigator.vibrate) navigator.vibrate([200, 100, 200])
-      setSoundEnabled(true)
-    } catch(e) {
-      alert('Could not enable sound. Please check your browser settings.')
-    }
   }
 
   async function updateLocation() {
@@ -350,24 +366,6 @@ export default function DriverDashboard({ profile, setProfile }) {
         </div>
       )}
 
-      {!soundEnabled && (
-        <button onClick={enableSound} style={{
-          width:'100%', padding:'14px', marginBottom:'12px',
-          background:'linear-gradient(135deg, #FF6F00, #FF8F00)',
-          color:'white', border:'none', borderRadius:'12px',
-          fontWeight:700, fontSize:'15px', cursor:'pointer',
-          boxShadow:'0 4px 12px rgba(255,111,0,0.3)'
-        }}>
-          🔔 Tap here to enable sound & vibration alerts
-        </button>
-      )}
-
-      {soundEnabled && (
-        <div style={{background:'#E8F5E9', borderRadius:'8px', padding:'8px 12px', marginBottom:'12px', fontSize:'13px', color:'#2E7D32', textAlign:'center', fontWeight:600}}>
-          🔔 Sound & vibration alerts enabled ✅
-        </div>
-      )}
-
       <div className="card" style={{background:'linear-gradient(135deg, #1565C0, #1976D2)', color:'white', marginBottom:'16px'}}>
         <div style={{fontSize:'13px', opacity:0.85, marginBottom:'4px'}}>Wallet Balance</div>
         <div style={{fontFamily:"'Baloo 2',cursive", fontSize:'36px', fontWeight:800}}>₹{profile.wallet_balance || 0}</div>
@@ -459,7 +457,6 @@ export default function DriverDashboard({ profile, setProfile }) {
                 }}>📏 {dist} km</span>
               )}
             </div>
-
             <div style={{fontSize:'13px', color:'#5a6a85', marginBottom:'4px'}}>👤 {req.customer_name || 'Customer'}</div>
             {req.location_text && (
               <div style={{fontSize:'13px', color:'#333', marginBottom:'4px', fontWeight:600}}>🏘️ {req.location_text}</div>
