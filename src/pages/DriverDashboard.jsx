@@ -78,7 +78,6 @@ export default function DriverDashboard({ profile, setProfile }) {
   const tankerLabel = isWater ? 'Water Tanker Driver' : 'Sewage Tanker Driver'
   const tankerColor = isWater ? '#1565C0' : '#2E7D32'
 
-  // Unlock audio on first touch/click/scroll — mandatory
   useEffect(() => {
     function unlock() {
       if (audioUnlocked.current) return
@@ -230,10 +229,28 @@ export default function DriverDashboard({ profile, setProfile }) {
 
   async function cancelAcceptedBid(bid, reason) {
     setActionLoading(true)
+
+    // Fetch fresh bid to ensure correct status
+    const { data: freshBid } = await supabase
+      .from('bids')
+      .select('*')
+      .eq('request_id', bid.request_id)
+      .eq('driver_id', profile.id)
+      .eq('status', 'accepted')
+      .single()
+
+    if (!freshBid) {
+      alert('Bid not found or already cancelled.')
+      setActionLoading(false)
+      setCancelModal(null)
+      return
+    }
+
     await supabase.from('bids').update({
       status: 'cancelled',
       withdraw_reason: reason
-    }).eq('id', bid.id)
+    }).eq('id', freshBid.id)
+
     setCancelModal(null)
     setActionLoading(false)
     alert('✅ Bid cancelled. ₹10 has been refunded to your wallet.')
