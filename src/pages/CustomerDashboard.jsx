@@ -36,7 +36,7 @@ export default function CustomerDashboard({ profile }) {
   const audioUnlocked = useRef(false)
   const navigate = useNavigate()
 
-  // Unlock audio on first touch
+  // Unlock audio on first touch/click/scroll — mandatory
   useEffect(() => {
     function unlock() {
       if (audioUnlocked.current) return
@@ -66,12 +66,14 @@ export default function CustomerDashboard({ profile }) {
 
     const channel = supabase.channel('customer-dashboard-' + profile.id)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bids' }, (payload) => {
-        playSound(660, 0.4, 2)
-        showNotification('🔔 New bid received!')
         fetchRequests()
         fetchBidCounts()
+        playSound(660, 0.4, 2)
+        showNotification('🔔 New bid received!')
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'requests' }, (payload) => {
+        fetchRequests()
+        fetchBidCounts()
         if (payload.new?.customer_id === profile.id) {
           if (payload.new?.status === 'accepted') {
             playSound(528, 0.4, 4)
@@ -81,9 +83,15 @@ export default function CustomerDashboard({ profile }) {
             playSound(440, 0.4, 3)
             showNotification('⚠️ Driver cancelled! Please choose another bid.')
           }
-          fetchRequests()
-          fetchBidCounts()
+          if (payload.new?.status === 'completed') {
+            playSound(528, 0.4, 4)
+            showNotification('🎉 Delivery completed successfully!')
+          }
         }
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bids' }, (payload) => {
+        fetchRequests()
+        fetchBidCounts()
       })
       .subscribe()
 
@@ -92,7 +100,7 @@ export default function CustomerDashboard({ profile }) {
 
   function showNotification(msg) {
     setNotification(msg)
-    setTimeout(() => setNotification(null), 5000)
+    setTimeout(() => setNotification(null), 6000)
   }
 
   async function fetchRequests() {
@@ -193,14 +201,32 @@ export default function CustomerDashboard({ profile }) {
           <div style={{background:'#E8F5E9', borderRadius:'10px', padding:'12px', marginBottom:'12px'}}>
             <div style={{fontWeight:700, color:'#2E7D32', marginBottom:'4px'}}>✅ Bid accepted!</div>
             {req.driver_phone && (
-              <a href={`tel:${req.driver_phone}`} style={{fontSize:'14px', color:'#1565C0', fontWeight:700, textDecoration:'none', display:'block', marginBottom:'8px'}}>
+              <a href={`tel:${req.driver_phone}`} style={{
+                fontSize:'14px', color:'#1565C0', fontWeight:700,
+                textDecoration:'none', display:'block', marginBottom:'8px'
+              }}>
                 📞 Call Driver: {req.driver_phone}
               </a>
             )}
             {req.otp && (
               <div style={{background:'#1565C0', borderRadius:'10px', padding:'12px', textAlign:'center'}}>
-                <div style={{fontSize:'12px', color:'rgba(255,255,255,0.8)', marginBottom:'4px'}}>Share OTP with driver on arrival</div>
-                <div style={{fontSize:'36px', fontWeight:900, color:'white', letterSpacing:'8px', fontFamily:"'Baloo 2',cursive"}}>{req.otp}</div>
+                <div style={{fontSize:'12px', color:'rgba(255,255,255,0.8)', marginBottom:'4px'}}>
+                  Share OTP with driver on arrival
+                </div>
+                <div style={{fontSize:'36px', fontWeight:900, color:'white', letterSpacing:'8px', fontFamily:"'Baloo 2',cursive"}}>
+                  {req.otp}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {req.status === 'completed' && (
+          <div style={{background:'#E3F2FD', borderRadius:'10px', padding:'12px', marginBottom:'12px'}}>
+            <div style={{fontWeight:700, color:'#1565C0', marginBottom:'4px'}}>🎉 Delivery completed!</div>
+            {req.accepted_price && (
+              <div style={{fontSize:'14px', color:'#333'}}>
+                💰 Amount paid: <strong>₹{req.accepted_price}</strong>
               </div>
             )}
           </div>
@@ -210,13 +236,24 @@ export default function CustomerDashboard({ profile }) {
           <div style={{display:'flex', gap:'8px'}}>
             <button
               onClick={() => navigate(`/customer/bids/${req.id}`)}
-              style={{flex:1, padding:'12px', background: bidCount > 0 ? '#1565C0' : '#F0F4FF', border: bidCount > 0 ? 'none' : '1.5px solid #C5D5F0', borderRadius:'10px', color: bidCount > 0 ? 'white' : '#1565C0', fontWeight:600, fontSize:'14px', cursor:'pointer'}}
+              style={{
+                flex:1, padding:'12px',
+                background: bidCount > 0 ? '#1565C0' : '#F0F4FF',
+                border: bidCount > 0 ? 'none' : '1.5px solid #C5D5F0',
+                borderRadius:'10px',
+                color: bidCount > 0 ? 'white' : '#1565C0',
+                fontWeight:600, fontSize:'14px', cursor:'pointer'
+              }}
             >
               {bidCount > 0 ? `👁️ View ${bidCount} Bid${bidCount > 1 ? 's' : ''}` : '👁️ View Bids'}
             </button>
             <button
               onClick={() => cancelRequest(req.id)}
-              style={{padding:'12px 16px', background:'#FFEBEE', border:'1.5px solid #FFCDD2', borderRadius:'10px', color:'#C62828', fontWeight:600, fontSize:'14px', cursor:'pointer'}}
+              style={{
+                padding:'12px 16px', background:'#FFEBEE',
+                border:'1.5px solid #FFCDD2', borderRadius:'10px',
+                color:'#C62828', fontWeight:600, fontSize:'14px', cursor:'pointer'
+              }}
             >
               ❌
             </button>
@@ -238,8 +275,10 @@ export default function CustomerDashboard({ profile }) {
 
       {notification && (
         <div style={{
-          background:'#1565C0', color:'white', padding:'12px 16px', borderRadius:'10px',
-          marginBottom:'12px', fontWeight:600, fontSize:'14px', textAlign:'center'
+          background:'#1565C0', color:'white', padding:'12px 16px',
+          borderRadius:'10px', marginBottom:'12px', fontWeight:600,
+          fontSize:'14px', textAlign:'center',
+          boxShadow:'0 4px 12px rgba(21,101,192,0.3)'
         }}>
           {notification}
         </div>
