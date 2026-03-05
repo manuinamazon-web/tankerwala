@@ -31,7 +31,7 @@ export default function ViewBids({ profile }) {
 
   useEffect(() => {
     fetchData()
-    const channel = supabase.channel('bids-'+requestId)
+    const channel = supabase.channel('bids-' + requestId)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bids', filter: `request_id=eq.${requestId}` },
         () => { playSound(660, 0.4, 2); fetchData() })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'requests', filter: `id=eq.${requestId}` },
@@ -43,7 +43,9 @@ export default function ViewBids({ profile }) {
   async function fetchData() {
     const [{ data: req }, { data: bidData }] = await Promise.all([
       supabase.from('requests').select('*').eq('id', requestId).single(),
-      supabase.from('bids').select('*, profiles(name, phone, area, tanker_type)').eq('request_id', requestId).order('price', { ascending: true })
+      supabase.from('bids').select('*, profiles(name, phone, area, tanker_type)')
+        .eq('request_id', requestId)
+        .order('price', { ascending: true })
     ])
     setRequest(req)
     setBids(bidData || [])
@@ -58,19 +60,21 @@ export default function ViewBids({ profile }) {
   async function acceptBid(bid) {
     setAccepting(bid.id)
 
-    // Check driver wallet
-    const { data: driver } = await supabase.from('profiles').select('wallet_balance, is_active').eq('id', bid.driver_id).single()
+    const { data: driver } = await supabase
+      .from('profiles')
+      .select('wallet_balance, is_active')
+      .eq('id', bid.driver_id)
+      .single()
+
     if (!driver.is_active || driver.wallet_balance < 10) {
       alert('This driver has insufficient wallet balance. Please choose another driver.')
       setAccepting(null)
       return
     }
 
-    // Accept the bid — trigger will handle OTP, wallet deduction, request update, reject others
     const { error } = await supabase.from('bids').update({ status: 'accepted' }).eq('id', bid.id)
     if (error) { alert(error.message); setAccepting(null); return }
 
-    // Fetch updated request with OTP
     setTimeout(async () => {
       const { data: updatedReq } = await supabase.from('requests').select('*').eq('id', requestId).single()
       if (updatedReq?.otp) {
@@ -84,7 +88,6 @@ export default function ViewBids({ profile }) {
 
   if (loading) return <div className="spinner" style={{marginTop:'40vh'}}></div>
 
-  // Show OTP screen after acceptance
   if (otp && acceptedBid) {
     return (
       <div className="page">
@@ -100,7 +103,7 @@ export default function ViewBids({ profile }) {
           <div style={{fontSize:'48px', marginBottom:'8px'}}>✅</div>
           <div style={{fontWeight:800, fontSize:'18px', color:'#2E7D32', marginBottom:'4px'}}>Bid Accepted!</div>
           <div style={{fontSize:'14px', color:'#5a6a85', marginBottom:'20px'}}>
-            Share this OTP with the driver when they arrive for delivery
+            Share this OTP with the driver when they arrive
           </div>
 
           <div style={{
@@ -118,9 +121,21 @@ export default function ViewBids({ profile }) {
           </div>
 
           <div style={{background:'#E8F5E9', borderRadius:'12px', padding:'16px', marginBottom:'16px', textAlign:'left'}}>
-            <div style={{fontWeight:700, color:'#2E7D32', marginBottom:'8px'}}>🚰 Driver Details</div>
+            <div style={{fontWeight:700, color:'#2E7D32', marginBottom:'10px'}}>🚰 Driver Details</div>
             <div style={{fontSize:'14px', color:'#333', marginBottom:'4px'}}>👤 {acceptedBid.profiles?.name}</div>
             <div style={{fontSize:'14px', color:'#333', marginBottom:'8px'}}>📍 {acceptedBid.profiles?.area || 'Bengaluru'}</div>
+            <div style={{display:'flex', gap:'8px', marginBottom:'12px', flexWrap:'wrap'}}>
+              {acceptedBid.delivery_time && (
+                <span style={{background:'#E3F2FD', color:'#1565C0', padding:'4px 10px', borderRadius:'20px', fontSize:'13px', fontWeight:600}}>
+                  ⏱️ {acceptedBid.delivery_time}
+                </span>
+              )}
+              {acceptedBid.tank_capacity && (
+                <span style={{background:'#E8F5E9', color:'#2E7D32', padding:'4px 10px', borderRadius:'20px', fontSize:'13px', fontWeight:600}}>
+                  🚰 {acceptedBid.tank_capacity}L tank
+                </span>
+              )}
+            </div>
             <a href={`tel:${acceptedBid.profiles?.phone}`} style={{
               display:'block', background:'#1565C0', color:'white', padding:'12px',
               borderRadius:'10px', textAlign:'center', fontWeight:700, fontSize:'15px',
@@ -131,7 +146,7 @@ export default function ViewBids({ profile }) {
           </div>
 
           <div style={{background:'#FFF3E0', borderRadius:'10px', padding:'12px', fontSize:'13px', color:'#E65100', textAlign:'left'}}>
-            ⚠️ <strong>Important:</strong> Only share OTP with the driver when tanker arrives at your location. Do not share OTP before delivery.
+            ⚠️ <strong>Important:</strong> Only share OTP when tanker arrives. Do not share before delivery.
           </div>
         </div>
       </div>
@@ -174,11 +189,15 @@ export default function ViewBids({ profile }) {
       )}
 
       {bids.map((bid, i) => (
-        <div key={bid.id} className="card" style={{marginBottom:'14px', border: i===0 ? '2px solid #2E7D32' : '1.5px solid #C5D5F0'}}>
+        <div key={bid.id} className="card" style={{
+          marginBottom:'14px',
+          border: i===0 && bids.length > 1 ? '2px solid #2E7D32' : '1.5px solid #C5D5F0'
+        }}>
           {i === 0 && bids.length > 1 && (
             <div style={{color:'#2E7D32', fontSize:'12px', fontWeight:700, marginBottom:'8px'}}>⭐ LOWEST BID</div>
           )}
-          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'8px'}}>
+
+          <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'10px'}}>
             <div>
               <div style={{fontWeight:700, fontSize:'16px'}}>👤 {bid.profiles?.name}</div>
               <div style={{color:'#5a6a85', fontSize:'13px'}}>📍 {bid.profiles?.area || 'Bengaluru'}</div>
@@ -188,8 +207,22 @@ export default function ViewBids({ profile }) {
             </div>
           </div>
 
+          {/* Delivery time and tank capacity */}
+          <div style={{display:'flex', gap:'8px', marginBottom:'10px', flexWrap:'wrap'}}>
+            {bid.delivery_time && (
+              <span style={{background:'#E3F2FD', color:'#1565C0', padding:'4px 12px', borderRadius:'20px', fontSize:'13px', fontWeight:600}}>
+                ⏱️ {bid.delivery_time}
+              </span>
+            )}
+            {bid.tank_capacity && (
+              <span style={{background:'#E8F5E9', color:'#2E7D32', padding:'4px 12px', borderRadius:'20px', fontSize:'13px', fontWeight:600}}>
+                🚰 {bid.tank_capacity}L tank
+              </span>
+            )}
+          </div>
+
           {bid.note && (
-            <div style={{background:'#F8F9FA', borderRadius:'8px', padding:'8px', fontSize:'13px', color:'#5a6a85', marginBottom:'12px'}}>
+            <div style={{background:'#F8F9FA', borderRadius:'8px', padding:'8px', fontSize:'13px', color:'#5a6a85', marginBottom:'10px'}}>
               📝 "{bid.note}"
             </div>
           )}
@@ -199,11 +232,11 @@ export default function ViewBids({ profile }) {
           </div>
 
           {bid.status === 'accepted' ? (
-            <div style={{textAlign:'center', color:'#2E7D32', fontWeight:700, fontSize:'14px', padding:'10px'}}>
+            <div style={{textAlign:'center', color:'#2E7D32', fontWeight:700, fontSize:'14px', padding:'10px', background:'#E8F5E9', borderRadius:'8px'}}>
               ✅ You accepted this bid
             </div>
           ) : bid.status === 'rejected' ? (
-            <div style={{textAlign:'center', color:'#C62828', fontWeight:600, fontSize:'13px', padding:'8px'}}>
+            <div style={{textAlign:'center', color:'#C62828', fontWeight:600, fontSize:'13px', padding:'8px', background:'#FFEBEE', borderRadius:'8px'}}>
               ❌ Not selected
             </div>
           ) : (
