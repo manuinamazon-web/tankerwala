@@ -36,6 +36,15 @@ function getDistance(lat1, lon1, lat2, lon2) {
   return (R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))).toFixed(1)
 }
 
+const CANCEL_REASONS = [
+  '⚡ Power cut / Motor issue',
+  '🚛 Vehicle breakdown',
+  '🚦 Heavy traffic',
+  '🤒 Personal emergency',
+  '📍 Cannot reach location',
+  '💧 Water not available',
+]
+
 export default function DriverDashboard({ profile, setProfile }) {
   const [tab, setTab] = useState('open')
   const [requests, setRequests] = useState([])
@@ -50,6 +59,9 @@ export default function DriverDashboard({ profile, setProfile }) {
   const [serviceRadius, setServiceRadius] = useState(profile.service_radius || 10)
   const [savingRadius, setSavingRadius] = useState(false)
   const [soundEnabled, setSoundEnabled] = useState(false)
+  const [cancelModal, setCancelModal] = useState(null)
+  const [withdrawModal, setWithdrawModal] = useState(null)
+  const [actionLoading, setActionLoading] = useState(false)
   const navigate = useNavigate()
 
   const isWater = profile.tanker_type === 'water'
@@ -77,9 +89,7 @@ export default function DriverDashboard({ profile, setProfile }) {
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bids' }, (payload) => {
         if (payload.new?.driver_id === profile.id) {
-          if (payload.new?.status === 'accepted') {
-            playSound(880, 0.4, 3)
-          }
+          if (payload.new?.status === 'accepted') playSound(880, 0.4, 3)
           fetchData()
         }
       })
@@ -91,9 +101,7 @@ export default function DriverDashboard({ profile, setProfile }) {
     }
   }, [])
 
-  useEffect(() => {
-    fetchData()
-  }, [serviceRadius, driverLat, driverLng])
+  useEffect(() => { fetchData() }, [serviceRadius, driverLat, driverLng])
 
   function enableSound() {
     try {
@@ -121,13 +129,10 @@ export default function DriverDashboard({ profile, setProfile }) {
       setDriverLng(lng)
       setLocationStatus('📍 Location active')
       await supabase.from('profiles').update({
-        driver_lat: lat,
-        driver_lng: lng,
+        driver_lat: lat, driver_lng: lng,
         last_seen: new Date().toISOString()
       }).eq('id', profile.id)
-    }, () => {
-      setLocationStatus('⚠️ Location unavailable — please allow location access')
-    })
+    }, () => setLocationStatus('⚠️ Location unavailable — please allow location access'))
   }
 
   async function fetchData() {
@@ -180,12 +185,33 @@ export default function DriverDashboard({ profile, setProfile }) {
     else { alert('Bid submitted!'); fetchData() }
   }
 
+  async function withdrawBid(bid) {
+    setActionLoading(true)
+    await supabase.from('bids').update({
+      status: 'withdrawn',
+      withdraw_reason: 'Driver withdrew bid'
+    }).eq('id', bid.id)
+    setWithdrawModal(null)
+    setActionLoading(false)
+    fetchData()
+  }
+
+  async function cancelAcceptedBid(bid, reason) {
+    setActionLoading(true)
+    await supabase.from('bids').update({
+      status: 'cancelled',
+      withdraw_reason: reason
+    }).eq('id', bid.id)
+    setCancelModal(null)
+    setActionLoading(false)
+    alert('✅ Bid cancelled. ₹10 has been refunded to your wallet.')
+    fetchData()
+  }
+
   async function requestRecharge() {
     const amount = parseInt(rechargeAmount)
     if (!amount || amount < 100) return alert('Minimum recharge is ₹100')
-    const { error } = await supabase.from('recharge_requests').insert({
-      driver_id: profile.id, amount
-    })
+    const { error } = await supabase.from('recharge_requests').insert({ driver_id: profile.id, amount })
     if (error) alert(error.message)
     else { alert('Recharge request sent! Admin will approve shortly.'); setRechargeAmount('') }
   }
@@ -195,9 +221,9 @@ export default function DriverDashboard({ profile, setProfile }) {
     navigate('/')
   }
 
-  const newBids = myBids.filter(b => b.status === 'pending')
+  const pendingBids = myBids.filter(b => b.status === 'pending')
   const acceptedBids = myBids.filter(b => b.status === 'accepted')
-  const rejectedBids = myBids.filter(b => b.status === 'rejected')
+  const rejectedBids = myBids.filter(b => b.status === 'rejected' || b.status === 'withdrawn' || b.status === 'cancelled')
 
   function BidCard({ bid }) {
     return (
@@ -225,23 +251,58 @@ export default function DriverDashboard({ profile, setProfile }) {
           </div>
           <span style={{
             padding:'6px 12px', borderRadius:'20px', fontSize:'12px', fontWeight:600, marginLeft:'8px',
-            background: bid.status==='accepted' ? '#E8F5E9' : bid.status==='rejected' ? '#FFEBEE' : '#FFF3E0',
-            color: bid.status==='accepted' ? '#2E7D32' : bid.status==='rejected' ? '#C62828' : '#E65100'
+            background: bid.status==='accepted' ? '#E8F5E9' : bid.status==='rejected' ? '#FFEBEE' : bid.status==='withdrawn' ? '#F3E5F5' : bid.status==='cancelled' ? '#FFF3E0' : '#FFF3E0',
+            color: bid.status==='accepted' ? '#2E7D32' : bid.status==='rejected' ? '#C62828' : bid.status==='withdrawn' ? '#7B1FA2' : bid.status==='cancelled' ? '#E65100' : '#E65100'
           }}>{bid.status?.toUpperCase()}</span>
         </div>
+
         {bid.status === 'accepted' && bid.requests?.customer_phone && (
           <div style={{background:'#E8F5E9', borderRadius:'8px', padding:'10px', marginTop:'10px'}}>
-            <div style={{fontSize:'13px', color:'#2E7D32', fontWeight:700, marginBottom:'4px'}}>
+            <div style={{fontSize:'13px', color:'#2E7D32', fontWeight:700, marginBottom:'6px'}}>
               🎉 Your bid was accepted!
             </div>
-            <a href={`tel:${bid.requests.customer_phone}`} style={{fontSize:'14px', color:'#1565C0', fontWeight:700, textDecoration:'none'}}>
+            <a href={`tel:${bid.requests.customer_phone}`} style={{
+              display:'block', background:'#1565C0', color:'white', padding:'10px',
+              borderRadius:'8px', textAlign:'center', fontWeight:700, fontSize:'14px',
+              textDecoration:'none', marginBottom:'8px'
+            }}>
               📞 Call Customer: {bid.requests.customer_phone}
             </a>
+            <button onClick={() => setCancelModal(bid)} style={{
+              width:'100%', padding:'10px', background:'#FFEBEE', color:'#C62828',
+              border:'1.5px solid #FFCDD2', borderRadius:'8px', fontWeight:600,
+              fontSize:'13px', cursor:'pointer'
+            }}>
+              ⚠️ Cannot Deliver — Report Issue
+            </button>
           </div>
         )}
+
+        {bid.status === 'pending' && (
+          <button onClick={() => setWithdrawModal(bid)} style={{
+            width:'100%', padding:'8px', background:'#FFF3E0', color:'#E65100',
+            border:'1.5px solid #FFE0B2', borderRadius:'8px', fontWeight:600,
+            fontSize:'12px', cursor:'pointer', marginTop:'8px'
+          }}>
+            🔙 Withdraw Bid
+          </button>
+        )}
+
         {bid.status === 'rejected' && (
           <div style={{background:'#FFEBEE', borderRadius:'8px', padding:'8px 10px', marginTop:'8px', fontSize:'12px', color:'#C62828'}}>
-            😔 Customer chose another driver for this request.
+            😔 Customer chose another driver.
+          </div>
+        )}
+
+        {bid.status === 'withdrawn' && (
+          <div style={{background:'#F3E5F5', borderRadius:'8px', padding:'8px 10px', marginTop:'8px', fontSize:'12px', color:'#7B1FA2'}}>
+            🔙 You withdrew this bid.
+          </div>
+        )}
+
+        {bid.status === 'cancelled' && (
+          <div style={{background:'#FFF3E0', borderRadius:'8px', padding:'8px 10px', marginTop:'8px', fontSize:'12px', color:'#E65100'}}>
+            ⚠️ You cancelled this delivery. ₹10 refunded.
           </div>
         )}
       </div>
@@ -322,9 +383,6 @@ export default function DriverDashboard({ profile, setProfile }) {
             <span key={r} style={{fontWeight: serviceRadius===r ? 700 : 400, color: serviceRadius===r ? '#1565C0' : '#5a6a85'}}>{r}</span>
           ))}
         </div>
-        <div style={{fontSize:'11px', color:'#5a6a85', marginTop:'6px', textAlign:'center'}}>
-          Showing requests within {serviceRadius}km of your location
-        </div>
       </div>
 
       <div style={{display:'flex', gap:'6px', marginBottom:'16px'}}>
@@ -333,16 +391,21 @@ export default function DriverDashboard({ profile, setProfile }) {
           background: tab==='open' ? '#1565C0' : '#F0F4FF',
           color: tab==='open' ? 'white' : '#5a6a85', border:'none', cursor:'pointer'
         }}>🔔 New ({requests.length})</button>
+        <button onClick={() => setTab('pending')} style={{
+          flex:1, padding:'10px', borderRadius:'10px', fontWeight:700, fontSize:'12px',
+          background: tab==='pending' ? '#FF6F00' : '#F0F4FF',
+          color: tab==='pending' ? 'white' : '#5a6a85', border:'none', cursor:'pointer'
+        }}>⏳ Pending ({pendingBids.length})</button>
         <button onClick={() => setTab('accepted')} style={{
           flex:1, padding:'10px', borderRadius:'10px', fontWeight:700, fontSize:'12px',
           background: tab==='accepted' ? '#2E7D32' : '#F0F4FF',
           color: tab==='accepted' ? 'white' : '#5a6a85', border:'none', cursor:'pointer'
-        }}>✅ Accepted ({acceptedBids.length})</button>
+        }}>✅ Won ({acceptedBids.length})</button>
         <button onClick={() => setTab('rejected')} style={{
           flex:1, padding:'10px', borderRadius:'10px', fontWeight:700, fontSize:'12px',
           background: tab==='rejected' ? '#C62828' : '#F0F4FF',
           color: tab==='rejected' ? 'white' : '#5a6a85', border:'none', cursor:'pointer'
-        }}>❌ Rejected ({rejectedBids.length})</button>
+        }}>❌ Lost ({rejectedBids.length})</button>
       </div>
 
       {loading && <div className="spinner"></div>}
@@ -372,26 +435,21 @@ export default function DriverDashboard({ profile, setProfile }) {
             </div>
 
             <div style={{fontSize:'13px', color:'#5a6a85', marginBottom:'4px'}}>👤 {req.customer_name || 'Customer'}</div>
-
             {req.location_text && (
               <div style={{fontSize:'13px', color:'#333', marginBottom:'4px', fontWeight:600}}>🏘️ {req.location_text}</div>
             )}
-
             <a href={mapsUrl} target="_blank" rel="noreferrer" style={{
               display:'inline-block', fontSize:'13px', color:'#1565C0', fontWeight:600,
               marginBottom:'8px', textDecoration:'none'
             }}>📍 View on Google Maps →</a>
-
             <div style={{fontSize:'12px', color:'#5a6a85', marginBottom:'12px'}}>
               🕐 {new Date(req.created_at).toLocaleString('en-IN', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}
             </div>
-
             {req.notes && (
               <div style={{background:'#F8F9FA', borderRadius:'8px', padding:'8px', fontSize:'13px', marginBottom:'12px'}}>
                 📝 {req.notes}
               </div>
             )}
-
             {alreadyBid ? (
               <div style={{textAlign:'center', color:'#2E7D32', fontWeight:600, fontSize:'14px'}}>✅ Bid submitted — waiting for customer</div>
             ) : (
@@ -425,6 +483,15 @@ export default function DriverDashboard({ profile, setProfile }) {
         </div>
       )}
 
+      {tab === 'pending' && !loading && pendingBids.length === 0 && (
+        <div className="empty-state">
+          <div className="icon">⏳</div>
+          <p>No pending bids.</p>
+          <p style={{fontSize:'13px', color:'#5a6a85'}}>Submit bids on new requests!</p>
+        </div>
+      )}
+      {tab === 'pending' && !loading && pendingBids.map(bid => <BidCard key={bid.id} bid={bid} />)}
+
       {tab === 'accepted' && !loading && acceptedBids.length === 0 && (
         <div className="empty-state">
           <div className="icon">✅</div>
@@ -435,12 +502,52 @@ export default function DriverDashboard({ profile, setProfile }) {
       {tab === 'accepted' && !loading && acceptedBids.map(bid => <BidCard key={bid.id} bid={bid} />)}
 
       {tab === 'rejected' && !loading && rejectedBids.length === 0 && (
-        <div className="empty-state">
-          <div className="icon">👍</div>
-          <p>No rejected bids!</p>
-        </div>
+        <div className="empty-state"><div className="icon">👍</div><p>No lost bids!</p></div>
       )}
       {tab === 'rejected' && !loading && rejectedBids.map(bid => <BidCard key={bid.id} bid={bid} />)}
+
+      {/* Cancel Modal */}
+      {cancelModal && (
+        <div style={{position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(0,0,0,0.5)', zIndex:1000, display:'flex', alignItems:'flex-end'}}>
+          <div style={{background:'white', borderRadius:'20px 20px 0 0', padding:'24px', width:'100%'}}>
+            <div style={{fontWeight:700, fontSize:'16px', marginBottom:'6px', color:'#C62828'}}>⚠️ Cannot Deliver</div>
+            <div style={{fontSize:'13px', color:'#5a6a85', marginBottom:'16px'}}>Select reason — ₹10 will be refunded to your wallet</div>
+            {CANCEL_REASONS.map(reason => (
+              <button key={reason} onClick={() => cancelAcceptedBid(cancelModal, reason)} disabled={actionLoading} style={{
+                width:'100%', padding:'12px', marginBottom:'8px', borderRadius:'10px',
+                background:'#FFF3E0', color:'#E65100', border:'1.5px solid #FFE0B2',
+                fontWeight:600, fontSize:'14px', cursor:'pointer', textAlign:'left'
+              }}>{reason}</button>
+            ))}
+            <button onClick={() => setCancelModal(null)} style={{
+              width:'100%', padding:'12px', borderRadius:'10px', background:'#F0F4FF',
+              color:'#5a6a85', border:'none', fontWeight:600, fontSize:'14px', cursor:'pointer'
+            }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Withdraw Modal */}
+      {withdrawModal && (
+        <div style={{position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(0,0,0,0.5)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:'24px'}}>
+          <div style={{background:'white', borderRadius:'16px', padding:'24px', width:'100%'}}>
+            <div style={{fontWeight:700, fontSize:'16px', marginBottom:'8px'}}>🔙 Withdraw Bid</div>
+            <div style={{fontSize:'13px', color:'#5a6a85', marginBottom:'20px'}}>
+              Are you sure you want to withdraw your bid of ₹{withdrawModal.price}?
+            </div>
+            <div style={{display:'flex', gap:'8px'}}>
+              <button onClick={() => withdrawBid(withdrawModal)} disabled={actionLoading} style={{
+                flex:1, padding:'12px', borderRadius:'10px', background:'#C62828',
+                color:'white', border:'none', fontWeight:700, fontSize:'14px', cursor:'pointer'
+              }}>{actionLoading ? 'Withdrawing...' : 'Yes, Withdraw'}</button>
+              <button onClick={() => setWithdrawModal(null)} style={{
+                flex:1, padding:'12px', borderRadius:'10px', background:'#F0F4FF',
+                color:'#5a6a85', border:'none', fontWeight:600, fontSize:'14px', cursor:'pointer'
+              }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
