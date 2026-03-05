@@ -70,6 +70,7 @@ export default function DriverDashboard({ profile, setProfile }) {
   const [withdrawModal, setWithdrawModal] = useState(null)
   const [actionLoading, setActionLoading] = useState(false)
   const [notification, setNotification] = useState(null)
+  const [walletBalance, setWalletBalance] = useState(profile.wallet_balance || 0)
   const audioUnlocked = useRef(false)
   const navigate = useNavigate()
 
@@ -164,7 +165,7 @@ export default function DriverDashboard({ profile, setProfile }) {
   }
 
   async function fetchData() {
-    const [{ data: reqs }, { data: bids }] = await Promise.all([
+    const [{ data: reqs }, { data: bids }, { data: profileData }] = await Promise.all([
       supabase.from('requests').select('*')
         .eq('status', 'pending')
         .eq('tanker_type', profile.tanker_type)
@@ -172,7 +173,8 @@ export default function DriverDashboard({ profile, setProfile }) {
       supabase.from('bids').select('*, requests(*)')
         .eq('driver_id', profile.id)
         .order('created_at', { ascending: false })
-        .limit(50)
+        .limit(50),
+      supabase.from('profiles').select('wallet_balance').eq('id', profile.id).single()
     ])
 
     const currentLat = driverLat || profile.driver_lat
@@ -187,6 +189,7 @@ export default function DriverDashboard({ profile, setProfile }) {
 
     setRequests(filteredReqs)
     setMyBids(bids || [])
+    if (profileData) setWalletBalance(profileData.wallet_balance || 0)
     setLoading(false)
   }
 
@@ -203,7 +206,7 @@ export default function DriverDashboard({ profile, setProfile }) {
     const price = bidPrices[requestId]
     if (!price) return alert('Please enter your price')
     if (!profile.is_active) return alert('Account inactive. Please recharge ₹100 first.')
-    if (profile.wallet_balance < 10) return alert('Insufficient wallet balance. Please recharge.')
+    if (walletBalance < 10) return alert('Insufficient wallet balance. Please recharge.')
     const { error } = await supabase.from('bids').insert({
       request_id: requestId,
       driver_id: profile.id,
@@ -230,7 +233,7 @@ export default function DriverDashboard({ profile, setProfile }) {
   async function cancelAcceptedBid(bid, reason) {
     setActionLoading(true)
 
-    // Fetch fresh bid to ensure correct status
+    // Fetch fresh bid with accepted status
     const { data: freshBid } = await supabase
       .from('bids')
       .select('*')
@@ -246,14 +249,30 @@ export default function DriverDashboard({ profile, setProfile }) {
       return
     }
 
+    // Update bid status to cancelled
     await supabase.from('bids').update({
       status: 'cancelled',
       withdraw_reason: reason
     }).eq('id', freshBid.id)
 
+    // Directly update request — don't rely on trigger
+    await supabase.from('requests').update({
+      status: 'pending',
+      driver_id: null,
+      driver_phone: null,
+      accepted_price: null,
+      otp: null,
+      otp_verified: false
+    }).eq('id', freshBid.request_id)
+
+    // Refund ₹10 directly
+    await supabase.from('profiles').update({
+      wallet_balance: walletBalance + 10
+    }).eq('id', profile.id)
+
     setCancelModal(null)
     setActionLoading(false)
-    alert('✅ Bid cancelled. ₹10 has been refunded to your wallet.')
+    alert('✅ Delivery cancelled. ₹10 refunded to your wallet.')
     fetchData()
   }
 
@@ -391,7 +410,7 @@ export default function DriverDashboard({ profile, setProfile }) {
 
       <div className="card" style={{background:'linear-gradient(135deg, #1565C0, #1976D2)', color:'white', marginBottom:'16px'}}>
         <div style={{fontSize:'13px', opacity:0.85, marginBottom:'4px'}}>Wallet Balance</div>
-        <div style={{fontFamily:"'Baloo 2',cursive", fontSize:'36px', fontWeight:800}}>₹{profile.wallet_balance || 0}</div>
+        <div style={{fontFamily:"'Baloo 2',cursive", fontSize:'36px', fontWeight:800}}>₹{walletBalance}</div>
         <div style={{fontSize:'12px', opacity:0.75}}>₹10 deducted per accepted bid</div>
         {!profile.is_active && (
           <div style={{background:'rgba(255,255,255,0.15)', borderRadius:'8px', padding:'10px', marginTop:'12px', fontSize:'13px'}}>
