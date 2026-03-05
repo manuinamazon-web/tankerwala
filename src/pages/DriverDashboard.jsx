@@ -288,18 +288,24 @@ export default function DriverDashboard({ profile, setProfile }) {
           }}>{bid.status?.toUpperCase()}</span>
         </div>
 
-        {bid.status === 'accepted' && bid.requests?.customer_phone && (
-          <div style={{background:'#E8F5E9', borderRadius:'8px', padding:'10px', marginTop:'10px'}}>
-            <div style={{fontSize:'13px', color:'#2E7D32', fontWeight:700, marginBottom:'6px'}}>
-              🎉 Your bid was accepted!
-            </div>
-            <a href={`tel:${bid.requests.customer_phone}`} style={{
-              display:'block', background:'#1565C0', color:'white', padding:'10px',
-              borderRadius:'8px', textAlign:'center', fontWeight:700, fontSize:'14px',
-              textDecoration:'none', marginBottom:'8px'
+        {bid.status === 'accepted' && (
+          <div style={{marginTop:'10px'}}>
+            {bid.requests?.customer_phone && (
+              <a href={`tel:${bid.requests.customer_phone}`} style={{
+                display:'block', background:'#1565C0', color:'white', padding:'10px',
+                borderRadius:'8px', textAlign:'center', fontWeight:700, fontSize:'14px',
+                textDecoration:'none', marginBottom:'8px'
+              }}>
+                📞 Call Customer: {bid.requests.customer_phone}
+              </a>
+            )}
+            <button onClick={() => navigate(`/driver/otp/${bid.request_id}`)} style={{
+              width:'100%', padding:'12px', background:'#2E7D32', color:'white',
+              border:'none', borderRadius:'8px', fontWeight:700,
+              fontSize:'14px', cursor:'pointer', marginBottom:'8px'
             }}>
-              📞 Call Customer: {bid.requests.customer_phone}
-            </a>
+              🔐 Enter OTP to Complete Delivery
+            </button>
             <button onClick={() => setCancelModal(bid)} style={{
               width:'100%', padding:'10px', background:'#FFEBEE', color:'#C62828',
               border:'1.5px solid #FFCDD2', borderRadius:'8px', fontWeight:600,
