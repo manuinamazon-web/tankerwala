@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { registerPushNotifications, setDriverOnline } from '../lib/pushNotifications'
 
 let audioCtx = null
 
@@ -53,6 +54,22 @@ const CANCEL_REASONS = [
   '💧 Water not available',
 ]
 
+const DELIVERY_TIMES = [
+  '30 minutes',
+  '1 hour',
+  '2 hours',
+  '3 hours',
+  'Tomorrow morning',
+]
+
+const TANK_CAPACITIES = [3000, 5000, 8000, 10000, 12000]
+
+const DELIVERY_STAGES = [
+  { key: 'loading', label: '🔄 Start Loading', next: 'on_the_way', color: '#FF6F00', customerMsg: '🔄 Driver is loading water!' },
+  { key: 'on_the_way', label: '🚛 On the Way', next: 'arrived', color: '#1565C0', customerMsg: '🚛 Driver is on the way!' },
+  { key: 'arrived', label: '📍 I Have Arrived', next: 'arrived', color: '#2E7D32', customerMsg: '📍 Driver has arrived! Share your OTP' },
+]
+
 export default function DriverDashboard({ profile, setProfile }) {
   const [tab, setTab] = useState('open')
   const [requests, setRequests] = useState([])
@@ -60,6 +77,8 @@ export default function DriverDashboard({ profile, setProfile }) {
   const [rechargeAmount, setRechargeAmount] = useState('')
   const [bidPrices, setBidPrices] = useState({})
   const [bidNotes, setBidNotes] = useState({})
+  const [bidTimes, setBidTimes] = useState({})
+  const [bidCapacities, setBidCapacities] = useState({})
   const [loading, setLoading] = useState(true)
   const [driverLat, setDriverLat] = useState(profile.driver_lat || null)
   const [driverLng, setDriverLng] = useState(profile.driver_lng || null)
@@ -71,7 +90,10 @@ export default function DriverDashboard({ profile, setProfile }) {
   const [actionLoading, setActionLoading] = useState(false)
   const [notification, setNotification] = useState(null)
   const [walletBalance, setWalletBalance] = useState(profile.wallet_balance || 0)
+  const [isOnline, setIsOnline] = useState(profile.is_online || false)
+  const [pushEnabled, setPushEnabled] = useState(false)
   const audioUnlocked = useRef(false)
+  const inactivityTimer = useRef(null)
   const navigate = useNavigate()
 
   const isWater = profile.tanker_type === 'water'
@@ -136,17 +158,47 @@ export default function DriverDashboard({ profile, setProfile }) {
       })
       .subscribe()
 
+    // Auto go offline after 30 min inactivity
+    resetInactivityTimer()
+    document.addEventListener('touchstart', resetInactivityTimer)
+    document.addEventListener('click', resetInactivityTimer)
+
     return () => {
       clearInterval(locationInterval)
       supabase.removeChannel(channel)
+      document.removeEventListener('touchstart', resetInactivityTimer)
+      document.removeEventListener('click', resetInactivityTimer)
+      if (inactivityTimer.current) clearTimeout(inactivityTimer.current)
     }
   }, [])
 
   useEffect(() => { fetchData() }, [serviceRadius, driverLat, driverLng])
 
+  function resetInactivityTimer() {
+    if (inactivityTimer.current) clearTimeout(inactivityTimer.current)
+    inactivityTimer.current = setTimeout(async () => {
+      await goOffline()
+    }, 30 * 60 * 1000)
+  }
+
   function showNotification(msg) {
     setNotification(msg)
     setTimeout(() => setNotification(null), 5000)
+  }
+
+  async function goOnline() {
+    const success = await registerPushNotifications(profile.id, supabase)
+    setPushEnabled(success)
+    await setDriverOnline(profile.id, true, supabase)
+    setIsOnline(true)
+    showNotification('✅ You are now online!')
+    playSound(880, 0.3, 2)
+  }
+
+  async function goOffline() {
+    await setDriverOnline(profile.id, false, supabase)
+    setIsOnline(false)
+    showNotification('🔴 You are now offline.')
   }
 
   async function updateLocation() {
@@ -174,7 +226,7 @@ export default function DriverDashboard({ profile, setProfile }) {
         .eq('driver_id', profile.id)
         .order('created_at', { ascending: false })
         .limit(50),
-      supabase.from('profiles').select('wallet_balance').eq('id', profile.id).single()
+      supabase.from('profiles').select('wallet_balance, is_online').eq('id', profile.id).single()
     ])
 
     const currentLat = driverLat || profile.driver_lat
@@ -189,8 +241,23 @@ export default function DriverDashboard({ profile, setProfile }) {
 
     setRequests(filteredReqs)
     setMyBids(bids || [])
-    if (profileData) setWalletBalance(profileData.wallet_balance || 0)
+    if (profileData) {
+      setWalletBalance(profileData.wallet_balance || 0)
+      setIsOnline(profileData.is_online || false)
+    }
     setLoading(false)
+  }
+
+  async function updateDeliveryStatus(requestId, newStatus, customerId) {
+    await supabase.from('requests').update({
+      delivery_status: newStatus
+    }).eq('id', requestId)
+
+    const stage = DELIVERY_STAGES.find(s => s.key === newStatus)
+    if (stage) {
+      showNotification(`${stage.customerMsg}`)
+    }
+    fetchData()
   }
 
   async function updateRadius(radius) {
@@ -204,7 +271,11 @@ export default function DriverDashboard({ profile, setProfile }) {
 
   async function submitBid(requestId) {
     const price = bidPrices[requestId]
+    const deliveryTime = bidTimes[requestId]
+    const tankCapacity = bidCapacities[requestId]
     if (!price) return alert('Please enter your price')
+    if (!deliveryTime) return alert('Please select estimated delivery time')
+    if (!tankCapacity) return alert('Please select your tank capacity')
     if (!profile.is_active) return alert('Account inactive. Please recharge ₹100 first.')
     if (walletBalance < 10) return alert('Insufficient wallet balance. Please recharge.')
     const { error } = await supabase.from('bids').insert({
@@ -213,7 +284,9 @@ export default function DriverDashboard({ profile, setProfile }) {
       driver_name: profile.name,
       driver_phone: profile.phone,
       price: parseInt(price),
-      note: bidNotes[requestId] || ''
+      note: bidNotes[requestId] || '',
+      delivery_time: deliveryTime,
+      tank_capacity: parseInt(tankCapacity)
     })
     if (error) alert(error.message)
     else { alert('Bid submitted!'); fetchData() }
@@ -233,7 +306,6 @@ export default function DriverDashboard({ profile, setProfile }) {
   async function cancelAcceptedBid(bid, reason) {
     setActionLoading(true)
 
-    // Fetch fresh bid with accepted status
     const { data: freshBid } = await supabase
       .from('bids')
       .select('*')
@@ -249,23 +321,21 @@ export default function DriverDashboard({ profile, setProfile }) {
       return
     }
 
-    // Update bid status to cancelled
     await supabase.from('bids').update({
       status: 'cancelled',
       withdraw_reason: reason
     }).eq('id', freshBid.id)
 
-    // Directly update request — don't rely on trigger
     await supabase.from('requests').update({
       status: 'pending',
       driver_id: null,
       driver_phone: null,
       accepted_price: null,
       otp: null,
-      otp_verified: false
+      otp_verified: false,
+      delivery_status: 'pending'
     }).eq('id', freshBid.request_id)
 
-    // Refund ₹10 directly
     await supabase.from('profiles').update({
       wallet_balance: walletBalance + 10
     }).eq('id', profile.id)
@@ -285,6 +355,7 @@ export default function DriverDashboard({ profile, setProfile }) {
   }
 
   async function logout() {
+    await goOffline()
     await supabase.auth.signOut()
     navigate('/')
   }
@@ -292,6 +363,95 @@ export default function DriverDashboard({ profile, setProfile }) {
   const pendingBids = myBids.filter(b => b.status === 'pending')
   const acceptedBids = myBids.filter(b => b.status === 'accepted')
   const rejectedBids = myBids.filter(b => b.status === 'rejected' || b.status === 'withdrawn' || b.status === 'cancelled')
+
+  function DeliveryStatusButtons({ bid }) {
+    const req = bid.requests
+    if (!req) return null
+    const currentStatus = req.delivery_status || 'pending'
+
+    const statusOrder = ['pending', 'loading', 'on_the_way', 'arrived', 'completed']
+    const currentIndex = statusOrder.indexOf(currentStatus)
+
+    return (
+      <div style={{marginTop:'10px'}}>
+        <div style={{fontSize:'12px', color:'#5a6a85', marginBottom:'8px', fontWeight:600}}>
+          Delivery Progress:
+        </div>
+        <div style={{display:'flex', gap:'4px', marginBottom:'12px'}}>
+          {['loading','on_the_way','arrived'].map((stage, idx) => (
+            <div key={stage} style={{
+              flex:1, height:'6px', borderRadius:'4px',
+              background: statusOrder.indexOf(currentStatus) > idx ? '#2E7D32' : '#E0E0E0'
+            }} />
+          ))}
+        </div>
+
+        {currentStatus === 'pending' && (
+          <button onClick={() => updateDeliveryStatus(bid.request_id, 'loading', req.customer_id)} style={{
+            width:'100%', padding:'12px', background:'#FF6F00', color:'white',
+            border:'none', borderRadius:'8px', fontWeight:700, fontSize:'14px',
+            cursor:'pointer', marginBottom:'8px'
+          }}>
+            🔄 Start Loading Water
+          </button>
+        )}
+
+        {currentStatus === 'loading' && (
+          <button onClick={() => updateDeliveryStatus(bid.request_id, 'on_the_way', req.customer_id)} style={{
+            width:'100%', padding:'12px', background:'#1565C0', color:'white',
+            border:'none', borderRadius:'8px', fontWeight:700, fontSize:'14px',
+            cursor:'pointer', marginBottom:'8px'
+          }}>
+            🚛 I am On the Way
+          </button>
+        )}
+
+        {currentStatus === 'on_the_way' && (
+          <button onClick={() => updateDeliveryStatus(bid.request_id, 'arrived', req.customer_id)} style={{
+            width:'100%', padding:'12px', background:'#2E7D32', color:'white',
+            border:'none', borderRadius:'8px', fontWeight:700, fontSize:'14px',
+            cursor:'pointer', marginBottom:'8px'
+          }}>
+            📍 I Have Arrived
+          </button>
+        )}
+
+        {currentStatus === 'arrived' && (
+          <div style={{background:'#E8F5E9', borderRadius:'8px', padding:'10px', marginBottom:'8px', textAlign:'center', fontSize:'13px', color:'#2E7D32', fontWeight:700}}>
+            ✅ Waiting for customer OTP
+          </div>
+        )}
+
+        {req.customer_phone && (
+          <a href={`tel:${req.customer_phone}`} style={{
+            display:'block', background:'#1565C0', color:'white', padding:'10px',
+            borderRadius:'8px', textAlign:'center', fontWeight:700, fontSize:'14px',
+            textDecoration:'none', marginBottom:'8px'
+          }}>
+            📞 Call Customer: {req.customer_phone}
+          </a>
+        )}
+
+        {currentStatus === 'arrived' && (
+          <button onClick={() => navigate(`/driver/otp/${bid.request_id}`)} style={{
+            width:'100%', padding:'12px', background:'#2E7D32', color:'white',
+            border:'none', borderRadius:'8px', fontWeight:700,
+            fontSize:'14px', cursor:'pointer', marginBottom:'8px'
+          }}>
+            🔐 Enter OTP to Complete Delivery
+          </button>
+        )}
+
+        <button onClick={() => setCancelModal(bid)} style={{
+          width:'100%', padding:'10px', background:'#FFEBEE', color:'#C62828',
+          border:'1.5px solid #FFCDD2', borderRadius:'8px', fontWeight:600,
+          fontSize:'13px', cursor:'pointer'
+        }}>
+          ⚠️ Cannot Deliver — Report Issue
+        </button>
+      </div>
+    )
+  }
 
   function BidCard({ bid }) {
     return (
@@ -312,7 +472,19 @@ export default function DriverDashboard({ profile, setProfile }) {
               </a>
             )}
             <div style={{fontSize:'16px', fontWeight:800, color:'#1565C0', fontFamily:"'Baloo 2',cursive", marginTop:'4px'}}>₹{bid.price}</div>
-            {bid.note && <div style={{fontSize:'12px', color:'#5a6a85'}}>📝 {bid.note}</div>}
+            <div style={{display:'flex', gap:'8px', marginTop:'4px', flexWrap:'wrap'}}>
+              {bid.delivery_time && (
+                <span style={{background:'#E3F2FD', color:'#1565C0', padding:'2px 8px', borderRadius:'20px', fontSize:'12px', fontWeight:600}}>
+                  ⏱️ {bid.delivery_time}
+                </span>
+              )}
+              {bid.tank_capacity && (
+                <span style={{background:'#E8F5E9', color:'#2E7D32', padding:'2px 8px', borderRadius:'20px', fontSize:'12px', fontWeight:600}}>
+                  🚰 {bid.tank_capacity}L tank
+                </span>
+              )}
+            </div>
+            {bid.note && <div style={{fontSize:'12px', color:'#5a6a85', marginTop:'4px'}}>📝 {bid.note}</div>}
             <div style={{fontSize:'12px', color:'#5a6a85', marginTop:'4px'}}>
               🕐 {new Date(bid.created_at).toLocaleString('en-IN', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}
             </div>
@@ -324,33 +496,7 @@ export default function DriverDashboard({ profile, setProfile }) {
           }}>{bid.status?.toUpperCase()}</span>
         </div>
 
-        {bid.status === 'accepted' && (
-          <div style={{marginTop:'10px'}}>
-            {bid.requests?.customer_phone && (
-              <a href={`tel:${bid.requests.customer_phone}`} style={{
-                display:'block', background:'#1565C0', color:'white', padding:'10px',
-                borderRadius:'8px', textAlign:'center', fontWeight:700, fontSize:'14px',
-                textDecoration:'none', marginBottom:'8px'
-              }}>
-                📞 Call Customer: {bid.requests.customer_phone}
-              </a>
-            )}
-            <button onClick={() => navigate(`/driver/otp/${bid.request_id}`)} style={{
-              width:'100%', padding:'12px', background:'#2E7D32', color:'white',
-              border:'none', borderRadius:'8px', fontWeight:700,
-              fontSize:'14px', cursor:'pointer', marginBottom:'8px'
-            }}>
-              🔐 Enter OTP to Complete Delivery
-            </button>
-            <button onClick={() => setCancelModal(bid)} style={{
-              width:'100%', padding:'10px', background:'#FFEBEE', color:'#C62828',
-              border:'1.5px solid #FFCDD2', borderRadius:'8px', fontWeight:600,
-              fontSize:'13px', cursor:'pointer'
-            }}>
-              ⚠️ Cannot Deliver — Report Issue
-            </button>
-          </div>
-        )}
+        {bid.status === 'accepted' && <DeliveryStatusButtons bid={bid} />}
 
         {bid.status === 'pending' && (
           <button onClick={() => setWithdrawModal(bid)} style={{
@@ -392,6 +538,33 @@ export default function DriverDashboard({ profile, setProfile }) {
           </div>
         </div>
         <button className="logout-btn" onClick={logout}>Logout</button>
+      </div>
+
+      {/* Online/Offline Toggle */}
+      <div style={{
+        background: isOnline ? '#E8F5E9' : '#FFEBEE',
+        borderRadius:'12px', padding:'14px 16px', marginBottom:'12px',
+        display:'flex', justifyContent:'space-between', alignItems:'center',
+        border: `1.5px solid ${isOnline ? '#A5D6A7' : '#FFCDD2'}`
+      }}>
+        <div>
+          <div style={{fontWeight:700, fontSize:'15px', color: isOnline ? '#2E7D32' : '#C62828'}}>
+            {isOnline ? '🟢 You are Online' : '🔴 You are Offline'}
+          </div>
+          <div style={{fontSize:'12px', color:'#5a6a85', marginTop:'2px'}}>
+            {isOnline ? 'Customers can see your bids' : 'Go online to receive requests'}
+          </div>
+          {isOnline && pushEnabled && (
+            <div style={{fontSize:'11px', color:'#2E7D32', marginTop:'2px'}}>🔔 Background alerts enabled</div>
+          )}
+        </div>
+        <button onClick={isOnline ? goOffline : goOnline} style={{
+          padding:'10px 20px', borderRadius:'20px', fontWeight:700, fontSize:'14px',
+          background: isOnline ? '#C62828' : '#2E7D32',
+          color:'white', border:'none', cursor:'pointer'
+        }}>
+          {isOnline ? 'Go Offline' : 'Go Online'}
+        </button>
       </div>
 
       <div style={{background:'#F0F4FF', borderRadius:'8px', padding:'8px 12px', marginBottom:'12px', fontSize:'12px', color:'#5a6a85', display:'flex', justifyContent:'space-between'}}>
@@ -525,8 +698,24 @@ export default function DriverDashboard({ profile, setProfile }) {
                   onChange={e => setBidPrices(p => ({...p, [req.id]: e.target.value}))}
                   style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1.5px solid #C5D5F0', fontSize:'14px', marginBottom:'8px', boxSizing:'border-box'}}
                 />
+                <select
+                  value={bidTimes[req.id] || ''}
+                  onChange={e => setBidTimes(p => ({...p, [req.id]: e.target.value}))}
+                  style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1.5px solid #C5D5F0', fontSize:'14px', marginBottom:'8px', boxSizing:'border-box', background:'white'}}
+                >
+                  <option value="">⏱️ Select delivery time</option>
+                  {DELIVERY_TIMES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <select
+                  value={bidCapacities[req.id] || ''}
+                  onChange={e => setBidCapacities(p => ({...p, [req.id]: e.target.value}))}
+                  style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1.5px solid #C5D5F0', fontSize:'14px', marginBottom:'8px', boxSizing:'border-box', background:'white'}}
+                >
+                  <option value="">🚰 Select tank capacity</option>
+                  {TANK_CAPACITIES.map(c => <option key={c} value={c}>{c} Litres</option>)}
+                </select>
                 <input
-                  type="text" placeholder="Optional note (e.g. can deliver in 1 hour)"
+                  type="text" placeholder="Optional note"
                   value={bidNotes[req.id] || ''}
                   onChange={e => setBidNotes(p => ({...p, [req.id]: e.target.value}))}
                   style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1.5px solid #C5D5F0', fontSize:'14px', marginBottom:'8px', boxSizing:'border-box'}}
