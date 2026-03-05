@@ -9,6 +9,7 @@ import DriverDashboard from './pages/DriverDashboard'
 import AdminDashboard from './pages/AdminDashboard'
 import PostRequest from './pages/PostRequest'
 import ViewBids from './pages/ViewBids'
+import DriverOTP from './pages/DriverOTP'
 
 export default function App() {
   const [user, setUser] = useState(null)
@@ -21,7 +22,6 @@ export default function App() {
       if (session?.user) fetchProfile(session.user.id)
       else setLoading(false)
     })
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
       if (session?.user) fetchProfile(session.user.id)
@@ -61,10 +61,17 @@ export default function App() {
         <Route path="/" element={getHome()} />
         <Route path="/login" element={!user ? <Login /> : getHome()} />
         <Route path="/register" element={!user ? <Register /> : getHome()} />
+
+        {/* Customer Routes */}
         <Route path="/customer" element={user && profile?.role === 'customer' ? <CustomerDashboard profile={profile} /> : <Navigate to="/" />} />
         <Route path="/customer/post" element={user && profile?.role === 'customer' ? <PostRequest profile={profile} /> : <Navigate to="/" />} />
         <Route path="/customer/bids/:requestId" element={user && profile?.role === 'customer' ? <ViewBids profile={profile} /> : <Navigate to="/" />} />
+
+        {/* Driver Routes */}
         <Route path="/driver" element={user && profile?.role === 'driver' ? <DriverDashboard profile={profile} setProfile={setProfile} /> : <Navigate to="/" />} />
+        <Route path="/driver/otp/:requestId" element={user && profile?.role === 'driver' ? <DriverOTP profile={profile} /> : <Navigate to="/" />} />
+
+        {/* Admin Routes */}
         <Route path="/admin" element={user && profile?.role === 'admin' ? <AdminDashboard profile={profile} /> : <Navigate to="/" />} />
       </Routes>
     </BrowserRouter>
