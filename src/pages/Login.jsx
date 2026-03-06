@@ -1,17 +1,21 @@
-
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { WaterTankerIcon, SewageTankerIcon } from '../components/TankerIcon'
 
 export default function Login() {
-  const [phone, setPhone] = useState('')
+  const [input, setInput] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
-  // Same logic as register — convert phone to fake email
+  // Detect if input is phone number or email
+  function isPhoneNumber(val) {
+    return /^\d{10}$/.test(val.trim())
+  }
+
+  // Convert phone to fake email (same logic as Register.jsx)
   function phoneToEmail(phone) {
     return `${phone.replace(/\s+/g, '')}@tankerwala.app`
   }
@@ -20,20 +24,30 @@ export default function Login() {
     e.preventDefault()
     setLoading(true); setError('')
 
-    if (!phone || phone.length < 10) {
-      setError('Please enter a valid 10-digit phone number')
+    if (!input.trim()) {
+      setError('Please enter your phone number or email')
+      setLoading(false); return
+    }
+    if (!password) {
+      setError('Please enter your password')
       setLoading(false); return
     }
 
-    const fakeEmail = phoneToEmail(phone)
+    // Determine email to use for Supabase auth
+    let emailToUse = ''
+    if (isPhoneNumber(input.trim())) {
+      emailToUse = phoneToEmail(input.trim())
+    } else {
+      emailToUse = input.trim()
+    }
 
     const { data, error: authError } = await supabase.auth.signInWithPassword({
-      email: fakeEmail,
+      email: emailToUse,
       password: password,
     })
 
     if (authError) {
-      setError('Wrong phone number or password. Please try again.')
+      setError('Wrong phone/email or password. Please try again.')
       setLoading(false); return
     }
 
@@ -74,16 +88,18 @@ export default function Login() {
 
         <form onSubmit={handleLogin}>
           <div className="form-group">
-            <label>📱 Phone Number</label>
+            <label>📱 Phone Number or Email</label>
             <input
-              type="tel"
-              placeholder="9876543210"
-              value={phone}
-              onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-              maxLength={10}
+              type="text"
+              placeholder="9876543210 or your@email.com"
+              value={input}
+              onChange={e => setInput(e.target.value)}
               required
-              style={{ fontSize: '18px', letterSpacing: '2px', fontWeight: 700 }}
+              style={{ fontSize: '16px' }}
             />
+            <div style={{ fontSize: '12px', color: '#5a6a85', marginTop: '4px' }}>
+              Drivers & Customers: enter phone number · Admin: enter email
+            </div>
           </div>
 
           <div className="form-group">
@@ -109,3 +125,4 @@ export default function Login() {
     </div>
   )
 }
+
