@@ -184,23 +184,16 @@ export default function DriverDashboard({ profile, setProfile }) {
     updateLocation()
     locationInterval.current = setInterval(updateLocation, 2 * 60 * 1000)
 
-    const channel = supabase.channel('driver-live-' + profile.id, {
-      config: { broadcast: { self: true } }
-    })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'requests' }, (payload) => {
-        if (payload.eventType === 'INSERT' && payload.new?.tanker_type === profile.tanker_type) {
-          const dist = getDistance(
-            driverLat || profile.driver_lat, driverLng || profile.driver_lng,
-            payload.new?.location_lat, payload.new?.location_lng
-          )
-          if (!dist || parseFloat(dist) <= (serviceRadius + 0.5)) {
-            playRinging()
-            showNotification('🔔 New request arrived!')
-          }
+    // ✅ Single reliable channel for driver
+    const channel = supabase.channel('driver-' + profile.id)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'requests',  }, (payload) => {
+        if (payload.new?.tanker_type === profile.tanker_type) {
+          playRinging()
+          showNotification('🔔 New request arrived!')
           fetchData()
         }
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'bids' }, (payload) => {
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bids' }, (payload) => {
         if (payload.new?.driver_id === profile.id) {
           if (payload.new?.status === 'accepted') {
             playSound(880, 0.4, 3)
@@ -210,8 +203,7 @@ export default function DriverDashboard({ profile, setProfile }) {
           fetchData()
         }
       })
-      // Listen for real-time wallet balance updates
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, (payload) => {
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, (payload) => {
         if (payload.new?.id === profile.id) {
           if (payload.new?.wallet_balance !== undefined) {
             setWalletBalance(payload.new.wallet_balance)
@@ -222,9 +214,7 @@ export default function DriverDashboard({ profile, setProfile }) {
           }
         }
       })
-      .subscribe((status) => {
-        console.log('Driver realtime status:', status)
-      })
+      .subscribe()
 
     resetInactivityTimer()
     document.addEventListener('touchstart', resetInactivityTimer)
