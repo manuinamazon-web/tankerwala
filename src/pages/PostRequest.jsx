@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { TankerIcon } from '../components/TankerIcon'
 
 function getDistance(lat1, lon1, lat2, lon2) {
   if (!lat1 || !lon1 || !lat2 || !lon2) return null
@@ -13,8 +14,12 @@ function getDistance(lat1, lon1, lat2, lon2) {
   return (R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))).toFixed(1)
 }
 
+const QUICK_CAPACITIES = [3000, 5000, 8000, 10000, 12000, 15000, 20000]
+
 export default function PostRequest({ profile }) {
   const [form, setForm] = useState({ tanker_type:'water', capacity:'', address:'', notes:'' })
+  const [customCapacity, setCustomCapacity] = useState('')
+  const [useCustom, setUseCustom] = useState(false)
   const [lat, setLat] = useState(null)
   const [lng, setLng] = useState(null)
   const [error, setError] = useState('')
@@ -30,12 +35,7 @@ export default function PostRequest({ profile }) {
   function update(field, val) { setForm(f => ({...f, [field]: val})) }
 
   useEffect(() => {
-    // Load saved addresses
-    if (profile.saved_addresses) {
-      setSavedAddresses(profile.saved_addresses)
-    }
-
-    // Silently get GPS in background
+    if (profile.saved_addresses) setSavedAddresses(profile.saved_addresses)
     navigator.geolocation?.getCurrentPosition(
       pos => {
         setLat(pos.coords.latitude)
@@ -90,12 +90,7 @@ export default function PostRequest({ profile }) {
   async function saveAddress() {
     if (!form.address.trim()) return
     const label = saveLabel.trim() || 'Home'
-    const newAddress = {
-      label,
-      address: form.address,
-      lat, lng,
-      id: Date.now()
-    }
+    const newAddress = { label, address: form.address, lat, lng, id: Date.now() }
     const updated = [...savedAddresses, newAddress]
     setSavedAddresses(updated)
     setShowSavePrompt(false)
@@ -110,9 +105,16 @@ export default function PostRequest({ profile }) {
     await supabase.from('profiles').update({ saved_addresses: updated }).eq('id', profile.id)
   }
 
+  function getFinalCapacity() {
+    if (useCustom) return customCapacity
+    return form.capacity
+  }
+
   async function handleSubmit(e) {
     e.preventDefault()
-    if (!form.capacity) { setError('Please select tank capacity'); return }
+    const finalCapacity = getFinalCapacity()
+    if (!finalCapacity) { setError('Please select or enter tank capacity'); return }
+    if (parseInt(finalCapacity) < 500) { setError('Minimum capacity is 500 litres'); return }
     if (!form.address.trim()) { setError('Please type your delivery location'); return }
     setLoading(true); setError('')
 
@@ -121,7 +123,7 @@ export default function PostRequest({ profile }) {
       customer_name: profile.name,
       customer_phone: profile.phone,
       tanker_type: form.tanker_type,
-      capacity: form.capacity,
+      capacity: parseInt(finalCapacity),
       location_text: form.address,
       location_lat: lat,
       location_lng: lng,
@@ -147,6 +149,8 @@ export default function PostRequest({ profile }) {
         {error && <div className="alert alert-error">{error}</div>}
 
         <form onSubmit={handleSubmit}>
+
+          {/* Tanker Type */}
           <div className="form-group">
             <label>Tanker Type</label>
             <div style={{display:'flex', gap:'10px'}}>
@@ -155,27 +159,84 @@ export default function PostRequest({ profile }) {
                   flex:1, padding:'14px', borderRadius:'10px', fontSize:'15px', fontWeight:600,
                   background: form.tanker_type===t ? (t==='water' ? '#1565C0' : '#2E7D32') : '#F0F4FF',
                   color: form.tanker_type===t ? 'white' : '#5a6a85',
-                  border: 'none'
+                  border: 'none', display:'flex', flexDirection:'column', alignItems:'center', gap:'6px'
                 }}>
+                  <TankerIcon type={t} size={50} />
                   {t === 'water' ? '💧 Water' : '🚽 Sewage'}
                 </button>
               ))}
             </div>
           </div>
 
+          {/* Capacity */}
           <div className="form-group">
             <label>Tank Capacity (Litres)</label>
-            <select value={form.capacity} onChange={e=>update('capacity',e.target.value)} required>
-              <option value="">Select capacity</option>
-              <option value="3000">3,000 Litres</option>
-              <option value="5000">5,000 Litres</option>
-              <option value="6000">6,000 Litres</option>
-              <option value="8000">8,000 Litres</option>
-              <option value="10000">10,000 Litres</option>
-              <option value="12000">12,000 Litres</option>
-            </select>
+
+            {/* Quick select buttons */}
+            {!useCustom && (
+              <div style={{display:'flex', flexWrap:'wrap', gap:'8px', marginBottom:'10px'}}>
+                {QUICK_CAPACITIES.map(c => (
+                  <button key={c} type="button"
+                    onClick={() => { update('capacity', String(c)); setUseCustom(false) }}
+                    style={{
+                      padding:'10px 14px', borderRadius:'10px', fontSize:'13px', fontWeight:700,
+                      background: form.capacity===String(c) ? '#1565C0' : '#F0F4FF',
+                      color: form.capacity===String(c) ? 'white' : '#333',
+                      border: form.capacity===String(c) ? 'none' : '1.5px solid #C5D5F0',
+                      cursor:'pointer'
+                    }}>
+                    {c >= 1000 ? `${c/1000}K` : c}L
+                  </button>
+                ))}
+                <button type="button"
+                  onClick={() => { setUseCustom(true); update('capacity', '') }}
+                  style={{
+                    padding:'10px 14px', borderRadius:'10px', fontSize:'13px', fontWeight:700,
+                    background: useCustom ? '#FF6F00' : '#F0F4FF',
+                    color: useCustom ? 'white' : '#333',
+                    border: useCustom ? 'none' : '1.5px solid #C5D5F0',
+                    cursor:'pointer'
+                  }}>
+                  ✏️ Custom
+                </button>
+              </div>
+            )}
+
+            {/* Custom input */}
+            {useCustom && (
+              <div>
+                <div style={{display:'flex', gap:'8px', alignItems:'center', marginBottom:'8px'}}>
+                  <input
+                    type="number"
+                    placeholder="Enter litres e.g. 25000"
+                    value={customCapacity}
+                    onChange={e => setCustomCapacity(e.target.value)}
+                    style={{flex:1, padding:'12px', borderRadius:'8px', border:'1.5px solid #FF6F00', fontSize:'16px', fontWeight:700, color:'#FF6F00'}}
+                    autoFocus
+                  />
+                  <span style={{fontSize:'14px', color:'#5a6a85', fontWeight:600}}>Litres</span>
+                </div>
+                <button type="button" onClick={() => { setUseCustom(false); setCustomCapacity('') }} style={{
+                  fontSize:'12px', color:'#1565C0', background:'none', border:'none',
+                  cursor:'pointer', fontWeight:600, padding:'0'
+                }}>
+                  ← Back to quick select
+                </button>
+              </div>
+            )}
+
+            {/* Show selected capacity */}
+            {(form.capacity || customCapacity) && (
+              <div style={{
+                background:'#E3F2FD', borderRadius:'8px', padding:'8px 12px',
+                fontSize:'13px', color:'#1565C0', fontWeight:700, marginTop:'8px'
+              }}>
+                ✅ Selected: {parseInt(getFinalCapacity()).toLocaleString()} Litres
+              </div>
+            )}
           </div>
 
+          {/* Location */}
           <div className="form-group">
             <label>📍 Delivery Location <span style={{color:'red'}}>*</span></label>
 
@@ -234,7 +295,7 @@ export default function PostRequest({ profile }) {
               <div style={{background:'#F0F4FF', borderRadius:'10px', padding:'12px', marginTop:'8px'}}>
                 <div style={{fontSize:'13px', fontWeight:600, marginBottom:'8px', color:'#1a2a4a'}}>Save as:</div>
                 <div style={{display:'flex', gap:'6px', marginBottom:'8px'}}>
-                  {['Home', 'Office', 'Site', 'Other'].map(l => (
+                  {['Home','Office','Site','Other'].map(l => (
                     <button key={l} type="button" onClick={() => setSaveLabel(l)} style={{
                       flex:1, padding:'8px 4px', borderRadius:'8px', fontSize:'12px', fontWeight:600,
                       background: saveLabel===l ? '#1565C0' : 'white',
@@ -257,6 +318,7 @@ export default function PostRequest({ profile }) {
             )}
           </div>
 
+          {/* Nearby drivers */}
           {nearbyDrivers !== null && lat && (
             <div style={{
               background: nearbyDrivers > 0 ? '#E8F5E9' : '#FFF3E0',
@@ -275,12 +337,13 @@ export default function PostRequest({ profile }) {
             </div>
           )}
 
+          {/* Notes */}
           <div className="form-group">
             <label>Additional Notes (Optional)</label>
             <textarea
               placeholder="E.g. Gate code, landmark, best time to deliver..."
               value={form.notes}
-              onChange={e=>update('notes',e.target.value)}
+              onChange={e => update('notes', e.target.value)}
               style={{height:'80px', resize:'none'}}
             />
           </div>
