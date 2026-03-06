@@ -36,7 +36,19 @@ export default function Login() {
     // Determine email to use for Supabase auth
     let emailToUse = ''
     if (isPhoneNumber(input.trim())) {
-      emailToUse = phoneToEmail(input.trim())
+      // First look up real email from profiles table by phone number
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('email')
+        .eq('phone', input.trim())
+        .single()
+
+      if (profileData?.email) {
+        emailToUse = profileData.email
+      } else {
+        // Fallback to fake email for old driver accounts
+        emailToUse = phoneToEmail(input.trim())
+      }
     } else {
       emailToUse = input.trim()
     }
