@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { WaterTankerIcon, SewageTankerIcon } from '../components/TankerIcon'
 
 export default function Register() {
   const [form, setForm] = useState({ name:'', phone:'', email:'', password:'', role:'customer', tanker_type:'water', area:'', service_radius:10 })
@@ -77,10 +78,25 @@ export default function Register() {
   return (
     <div className="page" style={{display:'flex', flexDirection:'column', justifyContent:'center', minHeight:'100vh'}}>
       <div style={{textAlign:'center', marginBottom:'24px'}}>
-        <h1 style={{fontFamily:"'Baloo 2',cursive", fontSize:'28px', color:'#1565C0'}}>
+
+        {/* Tanker icons */}
+        <div style={{display:'flex', justifyContent:'center', alignItems:'center', gap:'16px', marginBottom:'12px'}}>
+          {form.role === 'driver' ? (
+            form.tanker_type === 'water'
+              ? <WaterTankerIcon size={90} />
+              : <SewageTankerIcon size={90} />
+          ) : (
+            <>
+              <WaterTankerIcon size={70} />
+              <SewageTankerIcon size={70} />
+            </>
+          )}
+        </div>
+
+        <h1 style={{fontFamily:"'Baloo 2',cursive", fontSize:'28px', color:'#1565C0', margin:'0'}}>
           Tanker<span style={{color:'#FF6F00'}}>Wala</span>
         </h1>
-        <p style={{color:'#5a6a85'}}>Create your account</p>
+        <p style={{color:'#5a6a85', marginTop:'4px', fontSize:'13px'}}>Create your account</p>
       </div>
 
       <div className="card">
@@ -108,14 +124,22 @@ export default function Register() {
                   flex:1, padding:'14px', borderRadius:'10px', fontSize:'14px', fontWeight:600,
                   background: form.tanker_type==='water' ? '#E3F2FD' : '#F0F4FF',
                   color: form.tanker_type==='water' ? '#1565C0' : '#5a6a85',
-                  border: form.tanker_type==='water' ? '2px solid #1565C0' : '2px solid #C5D5F0'
-                }}>💧 Water Tanker</button>
+                  border: form.tanker_type==='water' ? '2px solid #1565C0' : '2px solid #C5D5F0',
+                  display:'flex', flexDirection:'column', alignItems:'center', gap:'8px'
+                }}>
+                  <WaterTankerIcon size={60} />
+                  💧 Water Tanker
+                </button>
                 <button onClick={() => update('tanker_type', 'sewage')} style={{
                   flex:1, padding:'14px', borderRadius:'10px', fontSize:'14px', fontWeight:600,
                   background: form.tanker_type==='sewage' ? '#E8F5E9' : '#F0F4FF',
                   color: form.tanker_type==='sewage' ? '#2E7D32' : '#5a6a85',
-                  border: form.tanker_type==='sewage' ? '2px solid #2E7D32' : '2px solid #C5D5F0'
-                }}>🚽 Sewage Tanker</button>
+                  border: form.tanker_type==='sewage' ? '2px solid #2E7D32' : '2px solid #C5D5F0',
+                  display:'flex', flexDirection:'column', alignItems:'center', gap:'8px'
+                }}>
+                  <SewageTankerIcon size={60} />
+                  🚽 Sewage Tanker
+                </button>
               </div>
             </div>
 
