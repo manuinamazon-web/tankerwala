@@ -184,21 +184,23 @@ export default function DriverDashboard({ profile, setProfile }) {
     updateLocation()
     locationInterval.current = setInterval(updateLocation, 2 * 60 * 1000)
 
-    const channel = supabase.channel('driver-live-' + profile.id)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'requests' }, (payload) => {
-        if (payload.new?.tanker_type === profile.tanker_type) {
+    const channel = supabase.channel('driver-live-' + profile.id, {
+      config: { broadcast: { self: true } }
+    })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'requests' }, (payload) => {
+        if (payload.eventType === 'INSERT' && payload.new?.tanker_type === profile.tanker_type) {
           const dist = getDistance(
-            profile.driver_lat, profile.driver_lng,
+            driverLat || profile.driver_lat, driverLng || profile.driver_lng,
             payload.new?.location_lat, payload.new?.location_lng
           )
           if (!dist || parseFloat(dist) <= (serviceRadius + 0.5)) {
             playRinging()
             showNotification('🔔 New request arrived!')
-            fetchData()
           }
+          fetchData()
         }
       })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bids' }, (payload) => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bids' }, (payload) => {
         if (payload.new?.driver_id === profile.id) {
           if (payload.new?.status === 'accepted') {
             playSound(880, 0.4, 3)
@@ -209,7 +211,7 @@ export default function DriverDashboard({ profile, setProfile }) {
         }
       })
       // Listen for real-time wallet balance updates
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, (payload) => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, (payload) => {
         if (payload.new?.id === profile.id) {
           if (payload.new?.wallet_balance !== undefined) {
             setWalletBalance(payload.new.wallet_balance)
@@ -220,14 +222,22 @@ export default function DriverDashboard({ profile, setProfile }) {
           }
         }
       })
-      .subscribe()
+      .subscribe((status) => {
+        console.log('Driver realtime status:', status)
+      })
 
     resetInactivityTimer()
     document.addEventListener('touchstart', resetInactivityTimer)
     document.addEventListener('click', resetInactivityTimer)
 
+    // ✅ Backup polling every 10 seconds for new requests
+    const pollInterval = setInterval(() => {
+      fetchData()
+    }, 10000)
+
     return () => {
       clearInterval(locationInterval.current)
+      clearInterval(pollInterval)
       supabase.removeChannel(channel)
       document.removeEventListener('touchstart', resetInactivityTimer)
       document.removeEventListener('click', resetInactivityTimer)
