@@ -233,19 +233,31 @@ export default function DriverDashboard({ profile, setProfile }) {
     showNotification('🔴 You are now offline.')
   }
 
+  // ✅ FIXED: Added enableHighAccuracy: true for precise GPS location
   async function updateLocation() {
     if (!navigator.geolocation) return
-    navigator.geolocation.getCurrentPosition(async pos => {
-      const lat = pos.coords.latitude
-      const lng = pos.coords.longitude
-      setDriverLat(lat)
-      setDriverLng(lng)
-      setLocationStatus('📍 Location active')
-      await supabase.from('profiles').update({
-        driver_lat: lat, driver_lng: lng,
-        last_seen: new Date().toISOString()
-      }).eq('id', profile.id)
-    }, () => setLocationStatus('⚠️ Location unavailable'))
+    navigator.geolocation.getCurrentPosition(
+      async pos => {
+        const lat = pos.coords.latitude
+        const lng = pos.coords.longitude
+        setDriverLat(lat)
+        setDriverLng(lng)
+        setLocationStatus('📍 Location active')
+        await supabase.from('profiles').update({
+          driver_lat: lat, driver_lng: lng,
+          last_seen: new Date().toISOString()
+        }).eq('id', profile.id)
+      },
+      (err) => {
+        console.error('Location error:', err.code, err.message)
+        setLocationStatus('⚠️ Location unavailable')
+      },
+      {
+        enableHighAccuracy: true,  // ← KEY FIX: uses real GPS not cell tower
+        timeout: 10000,
+        maximumAge: 0
+      }
+    )
   }
 
   async function fetchData() {
