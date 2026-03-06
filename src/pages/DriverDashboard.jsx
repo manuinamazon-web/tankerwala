@@ -65,13 +65,7 @@ function playRinging() {
   } catch(e) {}
   try {
     if (navigator.vibrate) {
-      navigator.vibrate([
-        500, 200, 500, 200, 500,
-        800,
-        500, 200, 500, 200, 500,
-        800,
-        500, 200, 500, 200, 500
-      ])
+      navigator.vibrate([500, 200, 500, 200, 500, 800, 500, 200, 500, 200, 500, 800, 500, 200, 500, 200, 500])
     }
   } catch(e) {}
 }
@@ -119,6 +113,7 @@ export default function DriverDashboard({ profile, setProfile }) {
   const [driverLat, setDriverLat] = useState(profile.driver_lat || null)
   const [driverLng, setDriverLng] = useState(profile.driver_lng || null)
   const [locationStatus, setLocationStatus] = useState('Getting your location...')
+  const [locationBlocked, setLocationBlocked] = useState(false)
   const [serviceRadius, setServiceRadius] = useState(profile.service_radius || 10)
   const [savingRadius, setSavingRadius] = useState(false)
   const [cancelModal, setCancelModal] = useState(null)
@@ -130,6 +125,7 @@ export default function DriverDashboard({ profile, setProfile }) {
   const [pushEnabled, setPushEnabled] = useState(false)
   const audioUnlocked = useRef(false)
   const inactivityTimer = useRef(null)
+  const locationInterval = useRef(null)
   const navigate = useNavigate()
 
   const isWater = profile.tanker_type === 'water'
@@ -163,7 +159,7 @@ export default function DriverDashboard({ profile, setProfile }) {
   useEffect(() => {
     fetchData()
     updateLocation()
-    const locationInterval = setInterval(updateLocation, 2 * 60 * 1000)
+    locationInterval.current = setInterval(updateLocation, 2 * 60 * 1000)
 
     const channel = supabase.channel('driver-live-' + profile.id)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'requests' }, (payload) => {
@@ -196,7 +192,7 @@ export default function DriverDashboard({ profile, setProfile }) {
     document.addEventListener('click', resetInactivityTimer)
 
     return () => {
-      clearInterval(locationInterval)
+      clearInterval(locationInterval.current)
       supabase.removeChannel(channel)
       document.removeEventListener('touchstart', resetInactivityTimer)
       document.removeEventListener('click', resetInactivityTimer)
@@ -218,12 +214,79 @@ export default function DriverDashboard({ profile, setProfile }) {
     setTimeout(() => setNotification(null), 5000)
   }
 
+  // ✅ Returns a Promise so goOnline() can wait for GPS before proceeding
+  function updateLocation() {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        setLocationStatus('⚠️ GPS not supported on this device')
+        setLocationBlocked(true)
+        resolve(null)
+        return
+      }
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const lat = pos.coords.latitude
+          const lng = pos.coords.longitude
+          setDriverLat(lat)
+          setDriverLng(lng)
+          setLocationStatus('📍 Location active')
+          setLocationBlocked(false)
+          await supabase.from('profiles').update({
+            driver_lat: lat,
+            driver_lng: lng,
+            last_seen: new Date().toISOString()
+          }).eq('id', profile.id)
+          resolve({ lat, lng })
+        },
+        (err) => {
+          console.error('Location error:', err.code, err.message)
+          if (err.code === 1) {
+            // Permission denied
+            setLocationStatus('🚫 Location blocked! Please allow location in browser settings.')
+            setLocationBlocked(true)
+          } else {
+            setLocationStatus('⚠️ Location unavailable. Please check GPS.')
+            setLocationBlocked(false)
+          }
+          resolve(null)
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0
+        }
+      )
+    })
+  }
+
   async function goOnline() {
+    // Step 1: Force get GPS first before going online
+    setLocationStatus('📡 Getting your GPS location...')
+    showNotification('📡 Getting your GPS location...')
+
+    const loc = await updateLocation()
+
+    if (!loc) {
+      // GPS failed - show warning but still allow going online
+      if (locationBlocked) {
+        showNotification('🚫 Location blocked! Open browser Settings → Allow Location for this site.')
+      } else {
+        showNotification('⚠️ Could not get GPS. Check if GPS is ON in your phone settings.')
+      }
+      // Still proceed but warn driver
+    }
+
+    // Step 2: Register push and go online
     const success = await registerPushNotifications(profile.id, supabase)
     setPushEnabled(success)
     await setDriverOnline(profile.id, true, supabase)
     setIsOnline(true)
-    showNotification('✅ You are now online!')
+
+    if (loc) {
+      showNotification('✅ You are now online! GPS location captured.')
+    } else {
+      showNotification('🟡 You are online but GPS is not active. Customers may not find you.')
+    }
     playSound(880, 0.3, 2)
   }
 
@@ -231,33 +294,6 @@ export default function DriverDashboard({ profile, setProfile }) {
     await setDriverOnline(profile.id, false, supabase)
     setIsOnline(false)
     showNotification('🔴 You are now offline.')
-  }
-
-  // ✅ FIXED: Added enableHighAccuracy: true for precise GPS location
-  async function updateLocation() {
-    if (!navigator.geolocation) return
-    navigator.geolocation.getCurrentPosition(
-      async pos => {
-        const lat = pos.coords.latitude
-        const lng = pos.coords.longitude
-        setDriverLat(lat)
-        setDriverLng(lng)
-        setLocationStatus('📍 Location active')
-        await supabase.from('profiles').update({
-          driver_lat: lat, driver_lng: lng,
-          last_seen: new Date().toISOString()
-        }).eq('id', profile.id)
-      },
-      (err) => {
-        console.error('Location error:', err.code, err.message)
-        setLocationStatus('⚠️ Location unavailable')
-      },
-      {
-        enableHighAccuracy: true,  // ← KEY FIX: uses real GPS not cell tower
-        timeout: 10000,
-        maximumAge: 0
-      }
-    )
   }
 
   async function fetchData() {
@@ -293,9 +329,7 @@ export default function DriverDashboard({ profile, setProfile }) {
   }
 
   async function updateDeliveryStatus(requestId, newStatus) {
-    await supabase.from('requests').update({
-      delivery_status: newStatus
-    }).eq('id', requestId)
+    await supabase.from('requests').update({ delivery_status: newStatus }).eq('id', requestId)
     fetchData()
   }
 
@@ -337,10 +371,7 @@ export default function DriverDashboard({ profile, setProfile }) {
 
   async function withdrawBid(bid) {
     setActionLoading(true)
-    await supabase.from('bids').update({
-      status: 'withdrawn',
-      withdraw_reason: 'Driver withdrew bid'
-    }).eq('id', bid.id)
+    await supabase.from('bids').update({ status: 'withdrawn', withdraw_reason: 'Driver withdrew bid' }).eq('id', bid.id)
     setWithdrawModal(null)
     setActionLoading(false)
     fetchData()
@@ -362,18 +393,12 @@ export default function DriverDashboard({ profile, setProfile }) {
       return
     }
 
-    await supabase.from('bids').update({
-      status: 'cancelled', withdraw_reason: reason
-    }).eq('id', freshBid.id)
-
+    await supabase.from('bids').update({ status: 'cancelled', withdraw_reason: reason }).eq('id', freshBid.id)
     await supabase.from('requests').update({
       status: 'pending', driver_id: null, driver_phone: null,
       accepted_price: null, otp: null, otp_verified: false, delivery_status: 'pending'
     }).eq('id', freshBid.request_id)
-
-    await supabase.from('profiles').update({
-      wallet_balance: walletBalance + 10
-    }).eq('id', profile.id)
+    await supabase.from('profiles').update({ wallet_balance: walletBalance + 10 }).eq('id', profile.id)
 
     setCancelModal(null)
     setActionLoading(false)
@@ -500,9 +525,7 @@ export default function DriverDashboard({ profile, setProfile }) {
             </div>
           </div>
         </div>
-
         {bid.status === 'accepted' && <DeliveryStatusButtons bid={bid} />}
-
         {bid.status === 'pending' && (
           <button onClick={() => setWithdrawModal(bid)} style={{
             width:'100%', padding:'8px', background:'#FFF3E0', color:'#E65100',
@@ -510,7 +533,6 @@ export default function DriverDashboard({ profile, setProfile }) {
             fontSize:'12px', cursor:'pointer', marginTop:'8px'
           }}>🔙 Withdraw Bid</button>
         )}
-
         {bid.status === 'completed' && (
           <div style={{background:'#E3F2FD', borderRadius:'8px', padding:'8px 10px', marginTop:'8px', fontSize:'13px', color:'#1565C0', fontWeight:600}}>
             🎉 Delivery completed!
@@ -533,6 +555,19 @@ export default function DriverDashboard({ profile, setProfile }) {
         <button className="logout-btn" onClick={logout}>Logout</button>
       </div>
 
+      {/* ✅ Location blocked warning banner */}
+      {locationBlocked && (
+        <div style={{
+          background:'#B71C1C', color:'white', borderRadius:'12px',
+          padding:'14px 16px', marginBottom:'12px', fontSize:'13px', fontWeight:600
+        }}>
+          🚫 Location is blocked!<br/>
+          <span style={{fontWeight:400, fontSize:'12px'}}>
+            Go to your phone Settings → Browser → Permissions → Location → Allow for this site. Then come back and tap "Go Online".
+          </span>
+        </div>
+      )}
+
       {/* Online/Offline Toggle */}
       <div style={{
         background: isOnline ? '#E8F5E9' : '#FFEBEE',
@@ -545,26 +580,42 @@ export default function DriverDashboard({ profile, setProfile }) {
             {isOnline ? '🟢 You are Online' : '🔴 You are Offline'}
           </div>
           <div style={{fontSize:'12px', color:'#5a6a85', marginTop:'2px'}}>
-            {isOnline ? 'Receiving new requests' : 'Go online to receive requests'}
+            {isOnline ? 'Receiving new requests' : 'Tap Go Online to start receiving requests'}
           </div>
           {isOnline && pushEnabled && (
             <div style={{fontSize:'11px', color:'#2E7D32', marginTop:'2px'}}>🔔 Background alerts enabled</div>
+          )}
+          {!isOnline && (
+            <div style={{fontSize:'11px', color:'#E65100', marginTop:'4px', fontWeight:600}}>
+              ⚠️ When asked, tap ALLOW for location access
+            </div>
           )}
         </div>
         <button onClick={isOnline ? goOffline : goOnline} style={{
           padding:'10px 20px', borderRadius:'20px', fontWeight:700, fontSize:'14px',
           background: isOnline ? '#C62828' : '#2E7D32',
-          color:'white', border:'none', cursor:'pointer'
+          color:'white', border:'none', cursor:'pointer', minWidth:'100px'
         }}>{isOnline ? 'Go Offline' : 'Go Online'}</button>
       </div>
 
-      <div style={{background:'#F0F4FF', borderRadius:'8px', padding:'8px 12px', marginBottom:'12px', fontSize:'12px', color:'#5a6a85', display:'flex', justifyContent:'space-between'}}>
+      {/* Location status bar */}
+      <div style={{
+        background: locationBlocked ? '#FFEBEE' : driverLat ? '#E8F5E9' : '#F0F4FF',
+        borderRadius:'8px', padding:'8px 12px', marginBottom:'12px',
+        fontSize:'12px', color: locationBlocked ? '#C62828' : driverLat ? '#2E7D32' : '#5a6a85',
+        display:'flex', justifyContent:'space-between', alignItems:'center',
+        fontWeight: locationBlocked ? 600 : 400
+      }}>
         <span>{locationStatus}</span>
         <span>📍 {profile.area || 'Not set'} • {serviceRadius}km</span>
       </div>
 
       {notification && (
-        <div style={{background:'#1565C0', color:'white', padding:'12px 16px', borderRadius:'10px', marginBottom:'12px', fontWeight:600, fontSize:'14px', textAlign:'center'}}>
+        <div style={{
+          background: notification.includes('🚫') || notification.includes('⚠️') ? '#E65100' : '#1565C0',
+          color:'white', padding:'12px 16px', borderRadius:'10px', marginBottom:'12px',
+          fontWeight:600, fontSize:'13px', textAlign:'center', lineHeight:'1.5'
+        }}>
           {notification}
         </div>
       )}
@@ -716,7 +767,6 @@ export default function DriverDashboard({ profile, setProfile }) {
         </div>
       )}
 
-      {/* My Bids */}
       {tab === 'mybids' && !loading && pendingBids.length === 0 && (
         <div className="empty-state">
           <div className="icon">⏳</div>
@@ -726,7 +776,6 @@ export default function DriverDashboard({ profile, setProfile }) {
       )}
       {tab === 'mybids' && !loading && pendingBids.map(bid => <BidCard key={bid.id} bid={bid} />)}
 
-      {/* Delivery */}
       {tab === 'delivery' && !loading && activeBids.length === 0 && (
         <div className="empty-state">
           <div className="icon">🚚</div>
@@ -736,7 +785,6 @@ export default function DriverDashboard({ profile, setProfile }) {
       )}
       {tab === 'delivery' && !loading && activeBids.map(bid => <BidCard key={bid.id} bid={bid} />)}
 
-      {/* History */}
       {tab === 'history' && !loading && (
         <>
           <div style={{background:'linear-gradient(135deg, #7B1FA2, #9C27B0)', borderRadius:'12px', padding:'16px', marginBottom:'16px', color:'white'}}>
@@ -785,7 +833,6 @@ export default function DriverDashboard({ profile, setProfile }) {
         </>
       )}
 
-      {/* Cancel Modal */}
       {cancelModal && (
         <div style={{position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(0,0,0,0.5)', zIndex:1000, display:'flex', alignItems:'flex-end'}}>
           <div style={{background:'white', borderRadius:'20px 20px 0 0', padding:'24px', width:'100%'}}>
@@ -806,7 +853,6 @@ export default function DriverDashboard({ profile, setProfile }) {
         </div>
       )}
 
-      {/* Withdraw Modal */}
       {withdrawModal && (
         <div style={{position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(0,0,0,0.5)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:'24px'}}>
           <div style={{background:'white', borderRadius:'16px', padding:'24px', width:'100%'}}>
