@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { TankerIcon } from '../components/TankerIcon'
 
 let audioCtx = null
 
@@ -28,11 +29,11 @@ function playSound(freq, vol, repeat) {
 }
 
 const DELIVERY_STATUS_INFO = {
-  pending:    { label: 'Waiting for driver',   icon: '⏳', color: '#E65100', bg: '#FFF3E0' },
+  pending:    { label: 'Waiting for driver',      icon: '⏳', color: '#E65100', bg: '#FFF3E0' },
   loading:    { label: 'Driver is loading water', icon: '🔄', color: '#FF6F00', bg: '#FFF8E1' },
-  on_the_way: { label: 'Driver is on the way!', icon: '🚛', color: '#1565C0', bg: '#E3F2FD' },
-  arrived:    { label: 'Driver has arrived!',   icon: '📍', color: '#2E7D32', bg: '#E8F5E9' },
-  completed:  { label: 'Delivered!',            icon: '✅', color: '#1565C0', bg: '#E3F2FD' },
+  on_the_way: { label: 'Driver is on the way!',   icon: '🚛', color: '#1565C0', bg: '#E3F2FD' },
+  arrived:    { label: 'Driver has arrived!',      icon: '📍', color: '#2E7D32', bg: '#E8F5E9' },
+  completed:  { label: 'Delivered!',               icon: '✅', color: '#1565C0', bg: '#E3F2FD' },
 }
 
 export default function CustomerDashboard({ profile }) {
@@ -42,7 +43,6 @@ export default function CustomerDashboard({ profile }) {
   const [loading, setLoading] = useState(true)
   const [notification, setNotification] = useState(null)
   const audioUnlocked = useRef(false)
-  const prevDeliveryStatus = useRef({})
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -87,8 +87,6 @@ export default function CustomerDashboard({ profile }) {
           const oldStatus = payload.old?.status
           const newDelivery = payload.new?.delivery_status
           const oldDelivery = payload.old?.delivery_status
-
-          // Request status changes
           if (newStatus === 'accepted' && oldStatus !== 'accepted') {
             playSound(528, 0.4, 4)
             showNotification('✅ Bid accepted! Share OTP with driver on arrival.')
@@ -101,8 +99,6 @@ export default function CustomerDashboard({ profile }) {
             playSound(528, 0.4, 4)
             showNotification('🎉 Delivery completed successfully!')
           }
-
-          // Delivery status changes
           if (newDelivery !== oldDelivery) {
             const info = DELIVERY_STATUS_INFO[newDelivery]
             if (info) {
@@ -138,19 +134,13 @@ export default function CustomerDashboard({ profile }) {
 
   async function fetchBidCounts() {
     const { data: reqs } = await supabase
-      .from('requests')
-      .select('id')
-      .eq('customer_id', profile.id)
-
+      .from('requests').select('id').eq('customer_id', profile.id)
     if (!reqs || reqs.length === 0) return
-
     const reqIds = reqs.map(r => r.id)
     const { data: bids } = await supabase
-      .from('bids')
-      .select('request_id')
+      .from('bids').select('request_id')
       .in('request_id', reqIds)
       .not('status', 'eq', 'withdrawn')
-
     const counts = {}
     ;(bids || []).forEach(b => {
       counts[b.request_id] = (counts[b.request_id] || 0) + 1
@@ -177,9 +167,7 @@ export default function CustomerDashboard({ profile }) {
     const stages = ['loading', 'on_the_way', 'arrived', 'completed']
     const currentIdx = stages.indexOf(req.delivery_status)
     const info = DELIVERY_STATUS_INFO[req.delivery_status] || DELIVERY_STATUS_INFO['pending']
-
     if (req.status !== 'accepted' && req.status !== 'completed') return null
-
     return (
       <div style={{background: info.bg, borderRadius:'10px', padding:'12px', marginBottom:'12px'}}>
         <div style={{display:'flex', alignItems:'center', gap:'8px', marginBottom:'10px'}}>
@@ -212,12 +200,21 @@ export default function CustomerDashboard({ profile }) {
     return (
       <div className="card" style={{marginBottom:'12px'}}>
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'8px'}}>
-          <div style={{display:'flex', gap:'6px', alignItems:'center'}}>
-            <span style={{background: req.tanker_type==='water' ? '#E3F2FD' : '#E8F5E9', color: req.tanker_type==='water' ? '#1565C0' : '#2E7D32', padding:'4px 10px', borderRadius:'20px', fontSize:'13px', fontWeight:600}}>
-              {req.tanker_type === 'water' ? '🚰 Water' : '🚛 Sewage'}
-            </span>
-            <span style={{fontWeight:600, color:'#333'}}>{req.capacity} L</span>
+
+          {/* Tanker icon + type + capacity */}
+          <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
+            <TankerIcon type={req.tanker_type} size={44} />
+            <div>
+              <div style={{
+                fontWeight:700, fontSize:'14px',
+                color: req.tanker_type === 'water' ? '#1565C0' : '#2E7D32'
+              }}>
+                {req.tanker_type === 'water' ? '🚰 Water Tanker' : '🚛 Sewage Tanker'}
+              </div>
+              <div style={{fontSize:'13px', color:'#5a6a85'}}>{req.capacity} Litres</div>
+            </div>
           </div>
+
           <span style={{
             padding:'4px 10px', borderRadius:'20px', fontSize:'12px', fontWeight:600,
             background: req.status==='accepted' ? '#E8F5E9' : req.status==='completed' ? '#E3F2FD' : req.status==='pending' ? '#FFF3E0' : '#FFEBEE',
@@ -235,7 +232,6 @@ export default function CustomerDashboard({ profile }) {
           🕐 {new Date(req.created_at).toLocaleString('en-IN', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}
         </div>
 
-        {/* Live delivery status bar */}
         <DeliveryStatusBar req={req} />
 
         {req.status === 'pending' && (
@@ -264,15 +260,11 @@ export default function CustomerDashboard({ profile }) {
               <a href={`tel:${req.driver_phone}`} style={{
                 fontSize:'14px', color:'#1565C0', fontWeight:700,
                 textDecoration:'none', display:'block', marginBottom:'8px'
-              }}>
-                📞 Call Driver: {req.driver_phone}
-              </a>
+              }}>📞 Call Driver: {req.driver_phone}</a>
             )}
             {req.otp && (req.delivery_status === 'arrived' || req.delivery_status === 'completed') && (
               <div style={{background:'#1565C0', borderRadius:'10px', padding:'12px', textAlign:'center'}}>
-                <div style={{fontSize:'12px', color:'rgba(255,255,255,0.8)', marginBottom:'4px'}}>
-                  Share OTP with driver
-                </div>
+                <div style={{fontSize:'12px', color:'rgba(255,255,255,0.8)', marginBottom:'4px'}}>Share OTP with driver</div>
                 <div style={{fontSize:'36px', fontWeight:900, color:'white', letterSpacing:'8px', fontFamily:"'Baloo 2',cursive"}}>
                   {req.otp}
                 </div>
@@ -290,38 +282,28 @@ export default function CustomerDashboard({ profile }) {
           <div style={{background:'#E3F2FD', borderRadius:'10px', padding:'12px', marginBottom:'12px'}}>
             <div style={{fontWeight:700, color:'#1565C0', marginBottom:'4px'}}>🎉 Delivery completed!</div>
             {req.accepted_price && (
-              <div style={{fontSize:'14px', color:'#333'}}>
-                💰 Amount paid: <strong>₹{req.accepted_price}</strong>
-              </div>
+              <div style={{fontSize:'14px', color:'#333'}}>💰 Amount paid: <strong>₹{req.accepted_price}</strong></div>
             )}
           </div>
         )}
 
         {req.status === 'pending' && (
           <div style={{display:'flex', gap:'8px'}}>
-            <button
-              onClick={() => navigate(`/customer/bids/${req.id}`)}
-              style={{
-                flex:1, padding:'12px',
-                background: bidCount > 0 ? '#1565C0' : '#F0F4FF',
-                border: bidCount > 0 ? 'none' : '1.5px solid #C5D5F0',
-                borderRadius:'10px',
-                color: bidCount > 0 ? 'white' : '#1565C0',
-                fontWeight:600, fontSize:'14px', cursor:'pointer'
-              }}
-            >
+            <button onClick={() => navigate(`/customer/bids/${req.id}`)} style={{
+              flex:1, padding:'12px',
+              background: bidCount > 0 ? '#1565C0' : '#F0F4FF',
+              border: bidCount > 0 ? 'none' : '1.5px solid #C5D5F0',
+              borderRadius:'10px',
+              color: bidCount > 0 ? 'white' : '#1565C0',
+              fontWeight:600, fontSize:'14px', cursor:'pointer'
+            }}>
               {bidCount > 0 ? `👁️ View ${bidCount} Bid${bidCount > 1 ? 's' : ''}` : '👁️ View Bids'}
             </button>
-            <button
-              onClick={() => cancelRequest(req.id)}
-              style={{
-                padding:'12px 16px', background:'#FFEBEE',
-                border:'1.5px solid #FFCDD2', borderRadius:'10px',
-                color:'#C62828', fontWeight:600, fontSize:'14px', cursor:'pointer'
-              }}
-            >
-              ❌
-            </button>
+            <button onClick={() => cancelRequest(req.id)} style={{
+              padding:'12px 16px', background:'#FFEBEE',
+              border:'1.5px solid #FFCDD2', borderRadius:'10px',
+              color:'#C62828', fontWeight:600, fontSize:'14px', cursor:'pointer'
+            }}>❌</button>
           </div>
         )}
       </div>
@@ -331,9 +313,12 @@ export default function CustomerDashboard({ profile }) {
   return (
     <div className="page">
       <div className="topbar">
-        <div>
-          <div className="topbar-logo">Tanker<span>Wala</span></div>
-          <div style={{fontSize:'12px', color:'#5a6a85'}}>Hello, {profile.name} 👋</div>
+        <div style={{display:'flex', alignItems:'center', gap:'10px'}}>
+          <TankerIcon type="water" size={36} />
+          <div>
+            <div className="topbar-logo">Tanker<span>Wala</span></div>
+            <div style={{fontSize:'12px', color:'#5a6a85'}}>Hello, {profile.name} 👋</div>
+          </div>
         </div>
         <button className="logout-btn" onClick={logout}>Logout</button>
       </div>
@@ -375,7 +360,7 @@ export default function CustomerDashboard({ profile }) {
 
       {tab === 'active' && !loading && activeRequests.length === 0 && (
         <div className="empty-state">
-          <div className="icon">🚛</div>
+          <TankerIcon type="water" size={80} />
           <p>No active requests.</p>
           <p style={{fontSize:'13px', color:'#5a6a85'}}>Post a new request to get bids!</p>
         </div>
