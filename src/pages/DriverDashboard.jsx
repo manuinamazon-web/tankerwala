@@ -208,6 +208,16 @@ export default function DriverDashboard({ profile, setProfile }) {
           fetchData()
         }
       })
+      // Listen for real-time wallet balance updates
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${profile.id}` }, (payload) => {
+        if (payload.new?.wallet_balance !== undefined) {
+          setWalletBalance(payload.new.wallet_balance)
+        }
+        if (payload.new?.is_active === true) {
+          showNotification('✅ Wallet recharged! You can now bid.')
+          playSound(880, 0.3, 2)
+        }
+      })
       .subscribe()
 
     resetInactivityTimer()
