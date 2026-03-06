@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { registerPushNotifications, setDriverOnline } from '../lib/pushNotifications'
+import { TankerIcon } from '../components/TankerIcon'
 
 let audioCtx = null
 
@@ -132,7 +133,6 @@ export default function DriverDashboard({ profile, setProfile }) {
   const navigate = useNavigate()
 
   const isWater = profile.tanker_type === 'water'
-  const tankerIcon = isWater ? '🚰' : '🚛'
   const tankerLabel = isWater ? 'Water Tanker Driver' : 'Sewage Tanker Driver'
   const tankerColor = isWater ? '#1565C0' : '#2E7D32'
 
@@ -455,8 +455,14 @@ export default function DriverDashboard({ profile, setProfile }) {
       <div className="card" style={{marginBottom:'12px'}}>
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
           <div style={{flex:1}}>
-            <div style={{fontWeight:700}}>
-              {bid.requests?.tanker_type === 'water' ? '🚰 Water' : '🚛 Sewage'} — {bid.requests?.capacity}L
+            <div style={{display:'flex', alignItems:'center', gap:'8px', marginBottom:'6px'}}>
+              <TankerIcon type={bid.requests?.tanker_type} size={36} />
+              <div>
+                <div style={{fontWeight:700, fontSize:'14px', color: bid.requests?.tanker_type === 'water' ? '#1565C0' : '#2E7D32'}}>
+                  {bid.requests?.tanker_type === 'water' ? '🚰 Water Tanker' : '🚛 Sewage Tanker'}
+                </div>
+                <div style={{fontSize:'13px', color:'#5a6a85'}}>{bid.requests?.capacity}L</div>
+              </div>
             </div>
             {bid.requests?.location_text && (
               <div style={{fontSize:'13px', color:'#5a6a85', marginTop:'2px'}}>🏘️ {bid.requests.location_text}</div>
@@ -506,7 +512,7 @@ export default function DriverDashboard({ profile, setProfile }) {
     <div className="page">
       <div className="topbar">
         <div style={{display:'flex', alignItems:'center', gap:'10px'}}>
-          <span style={{fontSize:'32px'}}>{tankerIcon}</span>
+          <TankerIcon type={profile.tanker_type} size={48} />
           <div>
             <div className="topbar-logo" style={{fontSize:'18px'}}>Tanker<span>Wala</span></div>
             <div style={{fontSize:'12px', color: tankerColor, fontWeight:600}}>{tankerLabel}</div>
@@ -617,12 +623,15 @@ export default function DriverDashboard({ profile, setProfile }) {
         const alreadyBid = !!existingBid
         return (
           <div key={req.id} className="card" style={{marginBottom:'12px'}}>
-            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'8px'}}>
-              <div style={{display:'flex', gap:'6px', alignItems:'center'}}>
-                <span style={{background: req.tanker_type==='water' ? '#E3F2FD' : '#E8F5E9', color: req.tanker_type==='water' ? '#1565C0' : '#2E7D32', padding:'4px 10px', borderRadius:'20px', fontSize:'13px', fontWeight:600}}>
-                  {req.tanker_type === 'water' ? '🚰 Water' : '🚛 Sewage'}
-                </span>
-                <span style={{fontWeight:700, color:'#1565C0'}}>{req.capacity}L</span>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'8px'}}>
+              <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
+                <TankerIcon type={req.tanker_type} size={44} />
+                <div>
+                  <div style={{fontWeight:700, fontSize:'14px', color: req.tanker_type === 'water' ? '#1565C0' : '#2E7D32'}}>
+                    {req.tanker_type === 'water' ? '🚰 Water Tanker' : '🚛 Sewage Tanker'}
+                  </div>
+                  <div style={{fontSize:'13px', color:'#5a6a85'}}>{req.capacity}L</div>
+                </div>
               </div>
               {dist && (
                 <span style={{
@@ -689,7 +698,7 @@ export default function DriverDashboard({ profile, setProfile }) {
       })}
       {tab === 'open' && !loading && requests.length === 0 && (
         <div className="empty-state">
-          <div className="icon">{tankerIcon}</div>
+          <TankerIcon type={profile.tanker_type} size={80} />
           <p>No new requests within {serviceRadius}km.</p>
           <p style={{fontSize:'13px', color:'#5a6a85'}}>Increase radius or wait for requests!</p>
         </div>
@@ -736,21 +745,25 @@ export default function DriverDashboard({ profile, setProfile }) {
             </div>
           </div>
           {historyBids.length === 0 && (
-            <div className="empty-state"><div className="icon">📋</div><p>No completed deliveries yet.</p></div>
+            <div className="empty-state">
+              <TankerIcon type={profile.tanker_type} size={80} />
+              <p>No completed deliveries yet.</p>
+            </div>
           )}
           {historyBids.map(bid => (
             <div key={bid.id} className="card" style={{marginBottom:'12px'}}>
-              <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
-                <div style={{flex:1}}>
-                  <div style={{fontWeight:700}}>
-                    {bid.requests?.tanker_type === 'water' ? '🚰 Water' : '🚛 Sewage'} — {bid.requests?.capacity}L
-                  </div>
-                  {bid.requests?.location_text && (
-                    <div style={{fontSize:'13px', color:'#5a6a85', marginTop:'2px'}}>🏘️ {bid.requests.location_text}</div>
-                  )}
-                  <div style={{fontSize:'16px', fontWeight:800, color:'#1565C0', fontFamily:"'Baloo 2',cursive", marginTop:'4px'}}>₹{bid.price}</div>
-                  <div style={{fontSize:'12px', color:'#5a6a85', marginTop:'4px'}}>
-                    🕐 {new Date(bid.created_at).toLocaleString('en-IN', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}
+              <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
+                  <TankerIcon type={bid.requests?.tanker_type} size={36} />
+                  <div>
+                    <div style={{fontWeight:700, fontSize:'14px', color: bid.requests?.tanker_type === 'water' ? '#1565C0' : '#2E7D32'}}>
+                      {bid.requests?.tanker_type === 'water' ? '🚰 Water Tanker' : '🚛 Sewage Tanker'}
+                    </div>
+                    <div style={{fontSize:'13px', color:'#5a6a85'}}>{bid.requests?.capacity}L • {bid.requests?.location_text}</div>
+                    <div style={{fontSize:'16px', fontWeight:800, color:'#1565C0', fontFamily:"'Baloo 2',cursive"}}>₹{bid.price}</div>
+                    <div style={{fontSize:'12px', color:'#5a6a85'}}>
+                      🕐 {new Date(bid.created_at).toLocaleString('en-IN', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}
+                    </div>
                   </div>
                 </div>
                 <span style={{background:'#E3F2FD', color:'#1565C0', padding:'6px 12px', borderRadius:'20px', fontSize:'12px', fontWeight:600}}>✅ DONE</span>
