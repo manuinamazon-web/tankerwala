@@ -101,6 +101,29 @@ function isToday(dateStr) {
     d.getFullYear() === now.getFullYear()
 }
 
+// ✅ WhatsApp location sharing function
+function shareLocationOnWhatsApp(customerPhone, customerName, driverLat, driverLng, driverName, status) {
+  if (!driverLat || !driverLng) {
+    alert('Your GPS location is not available. Please wait for location to be captured.')
+    return
+  }
+
+  const mapsLink = `https://maps.google.com/?q=${driverLat},${driverLng}`
+  const statusText = status === 'on_the_way' ? 'I am on my way' : 'I have arrived at your location'
+
+  const message =
+    `Hello! I am your TankerWala driver 🚛\n` +
+    `*${statusText}* to deliver your water tanker.\n\n` +
+    `📍 *My current location:*\n${mapsLink}\n\n` +
+    `Driver: ${driverName}\n` +
+    `_Powered by TankerWala_`
+
+  // Format phone number — remove 0 or +91 prefix, keep 10 digits
+  const cleanPhone = customerPhone.replace(/\D/g, '').replace(/^(0|91)/, '')
+  const whatsappUrl = `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(message)}`
+  window.open(whatsappUrl, '_blank')
+}
+
 export default function DriverDashboard({ profile, setProfile }) {
   const [tab, setTab] = useState('open')
   const [requests, setRequests] = useState([])
@@ -214,7 +237,6 @@ export default function DriverDashboard({ profile, setProfile }) {
     setTimeout(() => setNotification(null), 5000)
   }
 
-  // ✅ Returns a Promise so goOnline() can wait for GPS before proceeding
   function updateLocation() {
     return new Promise((resolve) => {
       if (!navigator.geolocation) {
@@ -232,8 +254,7 @@ export default function DriverDashboard({ profile, setProfile }) {
           setLocationStatus('📍 Location active')
           setLocationBlocked(false)
           await supabase.from('profiles').update({
-            driver_lat: lat,
-            driver_lng: lng,
+            driver_lat: lat, driver_lng: lng,
             last_seen: new Date().toISOString()
           }).eq('id', profile.id)
           resolve({ lat, lng })
@@ -241,7 +262,6 @@ export default function DriverDashboard({ profile, setProfile }) {
         (err) => {
           console.error('Location error:', err.code, err.message)
           if (err.code === 1) {
-            // Permission denied
             setLocationStatus('🚫 Location blocked! Please allow location in browser settings.')
             setLocationBlocked(true)
           } else {
@@ -250,42 +270,30 @@ export default function DriverDashboard({ profile, setProfile }) {
           }
           resolve(null)
         },
-        {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 0
-        }
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       )
     })
   }
 
   async function goOnline() {
-    // Step 1: Force get GPS first before going online
     setLocationStatus('📡 Getting your GPS location...')
     showNotification('📡 Getting your GPS location...')
-
     const loc = await updateLocation()
-
     if (!loc) {
-      // GPS failed - show warning but still allow going online
       if (locationBlocked) {
         showNotification('🚫 Location blocked! Open browser Settings → Allow Location for this site.')
       } else {
         showNotification('⚠️ Could not get GPS. Check if GPS is ON in your phone settings.')
       }
-      // Still proceed but warn driver
     }
-
-    // Step 2: Register push and go online
     const success = await registerPushNotifications(profile.id, supabase)
     setPushEnabled(success)
     await setDriverOnline(profile.id, true, supabase)
     setIsOnline(true)
-
     if (loc) {
       showNotification('✅ You are now online! GPS location captured.')
     } else {
-      showNotification('🟡 You are online but GPS is not active. Customers may not find you.')
+      showNotification('🟡 You are online but GPS is not active.')
     }
     playSound(880, 0.3, 2)
   }
@@ -433,8 +441,10 @@ export default function DriverDashboard({ profile, setProfile }) {
     const req = bid.requests
     if (!req) return null
     const currentStatus = req.delivery_status || 'pending'
+
     return (
       <div style={{marginTop:'10px'}}>
+        {/* Progress bar */}
         <div style={{display:'flex', gap:'4px', marginBottom:'10px'}}>
           {['loading','on_the_way','arrived'].map((stage, idx) => {
             const order = ['pending','loading','on_the_way','arrived']
@@ -442,29 +452,86 @@ export default function DriverDashboard({ profile, setProfile }) {
             return <div key={stage} style={{flex:1, height:'6px', borderRadius:'4px', background: filled ? '#2E7D32' : '#E0E0E0'}} />
           })}
         </div>
+
         {currentStatus === 'pending' && (
           <button onClick={() => updateDeliveryStatus(bid.request_id, 'loading')} style={{
             width:'100%', padding:'12px', background:'#FF6F00', color:'white',
             border:'none', borderRadius:'8px', fontWeight:700, fontSize:'14px', cursor:'pointer', marginBottom:'8px'
           }}>🔄 Start Loading Water</button>
         )}
+
         {currentStatus === 'loading' && (
-          <button onClick={() => updateDeliveryStatus(bid.request_id, 'on_the_way')} style={{
-            width:'100%', padding:'12px', background:'#1565C0', color:'white',
-            border:'none', borderRadius:'8px', fontWeight:700, fontSize:'14px', cursor:'pointer', marginBottom:'8px'
-          }}>🚛 I am On the Way</button>
+          <>
+            <button onClick={() => updateDeliveryStatus(bid.request_id, 'on_the_way')} style={{
+              width:'100%', padding:'12px', background:'#1565C0', color:'white',
+              border:'none', borderRadius:'8px', fontWeight:700, fontSize:'14px', cursor:'pointer', marginBottom:'8px'
+            }}>🚛 I am On the Way</button>
+
+            {/* ✅ WhatsApp location share when loading */}
+            {req.customer_phone && (
+              <button onClick={() => shareLocationOnWhatsApp(
+                req.customer_phone, req.customer_name,
+                driverLat, driverLng, profile.name, 'on_the_way'
+              )} style={{
+                width:'100%', padding:'12px', background:'#25D366', color:'white',
+                border:'none', borderRadius:'8px', fontWeight:700, fontSize:'14px',
+                cursor:'pointer', marginBottom:'8px', display:'flex',
+                alignItems:'center', justifyContent:'center', gap:'8px'
+              }}>
+                <span style={{fontSize:'18px'}}>💬</span> Share My Location on WhatsApp
+              </button>
+            )}
+          </>
         )}
+
         {currentStatus === 'on_the_way' && (
-          <button onClick={() => updateDeliveryStatus(bid.request_id, 'arrived')} style={{
-            width:'100%', padding:'12px', background:'#2E7D32', color:'white',
-            border:'none', borderRadius:'8px', fontWeight:700, fontSize:'14px', cursor:'pointer', marginBottom:'8px'
-          }}>📍 I Have Arrived</button>
+          <>
+            <button onClick={() => updateDeliveryStatus(bid.request_id, 'arrived')} style={{
+              width:'100%', padding:'12px', background:'#2E7D32', color:'white',
+              border:'none', borderRadius:'8px', fontWeight:700, fontSize:'14px', cursor:'pointer', marginBottom:'8px'
+            }}>📍 I Have Arrived</button>
+
+            {/* ✅ WhatsApp location share when on the way */}
+            {req.customer_phone && (
+              <button onClick={() => shareLocationOnWhatsApp(
+                req.customer_phone, req.customer_name,
+                driverLat, driverLng, profile.name, 'on_the_way'
+              )} style={{
+                width:'100%', padding:'12px', background:'#25D366', color:'white',
+                border:'none', borderRadius:'8px', fontWeight:700, fontSize:'14px',
+                cursor:'pointer', marginBottom:'8px', display:'flex',
+                alignItems:'center', justifyContent:'center', gap:'8px'
+              }}>
+                <span style={{fontSize:'18px'}}>💬</span> Share My Location on WhatsApp
+              </button>
+            )}
+          </>
         )}
+
         {currentStatus === 'arrived' && (
-          <div style={{background:'#E8F5E9', borderRadius:'8px', padding:'10px', marginBottom:'8px', textAlign:'center', fontSize:'13px', color:'#2E7D32', fontWeight:700}}>
-            ✅ Waiting for customer OTP
-          </div>
+          <>
+            <div style={{background:'#E8F5E9', borderRadius:'8px', padding:'10px', marginBottom:'8px', textAlign:'center', fontSize:'13px', color:'#2E7D32', fontWeight:700}}>
+              ✅ Waiting for customer OTP
+            </div>
+
+            {/* ✅ WhatsApp message when arrived */}
+            {req.customer_phone && (
+              <button onClick={() => shareLocationOnWhatsApp(
+                req.customer_phone, req.customer_name,
+                driverLat, driverLng, profile.name, 'arrived'
+              )} style={{
+                width:'100%', padding:'12px', background:'#25D366', color:'white',
+                border:'none', borderRadius:'8px', fontWeight:700, fontSize:'14px',
+                cursor:'pointer', marginBottom:'8px', display:'flex',
+                alignItems:'center', justifyContent:'center', gap:'8px'
+              }}>
+                <span style={{fontSize:'18px'}}>💬</span> Notify Customer on WhatsApp
+              </button>
+            )}
+          </>
         )}
+
+        {/* Call customer */}
         {req.customer_phone && (
           <a href={`tel:${req.customer_phone}`} style={{
             display:'block', background:'#1565C0', color:'white', padding:'10px',
@@ -472,12 +539,14 @@ export default function DriverDashboard({ profile, setProfile }) {
             textDecoration:'none', marginBottom:'8px'
           }}>📞 Call Customer: {req.customer_phone}</a>
         )}
+
         {currentStatus === 'arrived' && (
           <button onClick={() => navigate(`/driver/otp/${bid.request_id}`)} style={{
             width:'100%', padding:'12px', background:'#2E7D32', color:'white',
             border:'none', borderRadius:'8px', fontWeight:700, fontSize:'14px', cursor:'pointer', marginBottom:'8px'
           }}>🔐 Enter OTP to Complete Delivery</button>
         )}
+
         <button onClick={() => setCancelModal(bid)} style={{
           width:'100%', padding:'10px', background:'#FFEBEE', color:'#C62828',
           border:'1.5px solid #FFCDD2', borderRadius:'8px', fontWeight:600,
@@ -555,15 +624,12 @@ export default function DriverDashboard({ profile, setProfile }) {
         <button className="logout-btn" onClick={logout}>Logout</button>
       </div>
 
-      {/* ✅ Location blocked warning banner */}
+      {/* Location blocked warning */}
       {locationBlocked && (
-        <div style={{
-          background:'#B71C1C', color:'white', borderRadius:'12px',
-          padding:'14px 16px', marginBottom:'12px', fontSize:'13px', fontWeight:600
-        }}>
+        <div style={{background:'#B71C1C', color:'white', borderRadius:'12px', padding:'14px 16px', marginBottom:'12px', fontSize:'13px', fontWeight:600}}>
           🚫 Location is blocked!<br/>
           <span style={{fontWeight:400, fontSize:'12px'}}>
-            Go to your phone Settings → Browser → Permissions → Location → Allow for this site. Then come back and tap "Go Online".
+            Go to phone Settings → Browser → Permissions → Location → Allow. Then tap "Go Online".
           </span>
         </div>
       )}
@@ -598,7 +664,7 @@ export default function DriverDashboard({ profile, setProfile }) {
         }}>{isOnline ? 'Go Offline' : 'Go Online'}</button>
       </div>
 
-      {/* Location status bar */}
+      {/* Location status */}
       <div style={{
         background: locationBlocked ? '#FFEBEE' : driverLat ? '#E8F5E9' : '#F0F4FF',
         borderRadius:'8px', padding:'8px 12px', marginBottom:'12px',
@@ -620,6 +686,7 @@ export default function DriverDashboard({ profile, setProfile }) {
         </div>
       )}
 
+      {/* Wallet */}
       <div className="card" style={{background:'linear-gradient(135deg, #1565C0, #1976D2)', color:'white', marginBottom:'16px'}}>
         <div style={{fontSize:'13px', opacity:0.85, marginBottom:'4px'}}>Wallet Balance</div>
         <div style={{fontFamily:"'Baloo 2',cursive", fontSize:'36px', fontWeight:800}}>₹{walletBalance}</div>
@@ -642,23 +709,24 @@ export default function DriverDashboard({ profile, setProfile }) {
         </div>
       </div>
 
+      {/* Service Radius */}
       <div style={{background:'white', borderRadius:'12px', padding:'14px', marginBottom:'16px', border:'1px solid #E8EEF8'}}>
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
           <div style={{fontWeight:600, fontSize:'13px', color:'#1a2a4a'}}>📡 Service Radius</div>
           <div style={{fontWeight:800, fontSize:'18px', color:'#1565C0'}}>{serviceRadius} km {savingRadius ? '⏳' : '✅'}</div>
         </div>
-        <input type="range" min="1" max="10" step="1" value={serviceRadius}
+        <input type="range" min="1" max="20" step="1" value={serviceRadius}
           onChange={e => updateRadius(parseInt(e.target.value))}
           style={{width:'100%', marginBottom:'6px', accentColor:'#1565C0', height:'6px'}}
         />
         <div style={{display:'flex', justifyContent:'space-between', fontSize:'11px', color:'#5a6a85'}}>
-          {[1,2,3,4,5,6,7,8,9,10].map(r => (
-            <span key={r} style={{fontWeight: serviceRadius===r ? 700 : 400, color: serviceRadius===r ? '#1565C0' : '#5a6a85'}}>{r}</span>
+          {[1,5,10,15,20].map(r => (
+            <span key={r} style={{fontWeight: serviceRadius===r ? 700 : 400, color: serviceRadius===r ? '#1565C0' : '#5a6a85'}}>{r}km</span>
           ))}
         </div>
       </div>
 
-      {/* 4 Tabs */}
+      {/* Tabs */}
       <div style={{display:'flex', gap:'6px', marginBottom:'16px'}}>
         {[
           { key:'open', label:'🔔 New', count: requests.length, color:'#1565C0' },
@@ -734,26 +802,18 @@ export default function DriverDashboard({ profile, setProfile }) {
                   style={{width:'100%', padding:'12px', borderRadius:'8px', border:'1.5px solid #C5D5F0', fontSize:'18px', marginBottom:'8px', boxSizing:'border-box', fontWeight:800, color:'#1565C0'}}
                 />
                 <div style={{display:'flex', gap:'8px', marginBottom:'8px'}}>
-                  <select
-                    value={bidTimes[req.id] || ''}
-                    onChange={e => setBidTimes(p => ({...p, [req.id]: e.target.value}))}
-                    style={{flex:1, padding:'10px', borderRadius:'8px', border:'1.5px solid #C5D5F0', fontSize:'13px', background:'white'}}
-                  >
+                  <select value={bidTimes[req.id] || ''} onChange={e => setBidTimes(p => ({...p, [req.id]: e.target.value}))}
+                    style={{flex:1, padding:'10px', borderRadius:'8px', border:'1.5px solid #C5D5F0', fontSize:'13px', background:'white'}}>
                     <option value="">⏱️ Delivery time</option>
                     {DELIVERY_TIMES.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
-                  <select
-                    value={bidCapacities[req.id] || ''}
-                    onChange={e => setBidCapacities(p => ({...p, [req.id]: e.target.value}))}
-                    style={{flex:1, padding:'10px', borderRadius:'8px', border:'1.5px solid #C5D5F0', fontSize:'13px', background:'white'}}
-                  >
+                  <select value={bidCapacities[req.id] || ''} onChange={e => setBidCapacities(p => ({...p, [req.id]: e.target.value}))}
+                    style={{flex:1, padding:'10px', borderRadius:'8px', border:'1.5px solid #C5D5F0', fontSize:'13px', background:'white'}}>
                     <option value="">🚰 Tank size</option>
                     {TANK_CAPACITIES.map(c => <option key={c} value={c}>{c}L</option>)}
                   </select>
                 </div>
-                <button className="btn-primary" onClick={() => submitBid(req.id)}>
-                  🏷️ Submit Bid
-                </button>
+                <button className="btn-primary" onClick={() => submitBid(req.id)}>🏷️ Submit Bid</button>
               </>
             )}
           </div>
@@ -768,20 +828,12 @@ export default function DriverDashboard({ profile, setProfile }) {
       )}
 
       {tab === 'mybids' && !loading && pendingBids.length === 0 && (
-        <div className="empty-state">
-          <div className="icon">⏳</div>
-          <p>No pending bids.</p>
-          <p style={{fontSize:'13px', color:'#5a6a85'}}>Submit bids on new requests!</p>
-        </div>
+        <div className="empty-state"><div className="icon">⏳</div><p>No pending bids.</p></div>
       )}
       {tab === 'mybids' && !loading && pendingBids.map(bid => <BidCard key={bid.id} bid={bid} />)}
 
       {tab === 'delivery' && !loading && activeBids.length === 0 && (
-        <div className="empty-state">
-          <div className="icon">🚚</div>
-          <p>No active deliveries.</p>
-          <p style={{fontSize:'13px', color:'#5a6a85'}}>Win a bid to start delivering!</p>
-        </div>
+        <div className="empty-state"><div className="icon">🚚</div><p>No active deliveries.</p></div>
       )}
       {tab === 'delivery' && !loading && activeBids.map(bid => <BidCard key={bid.id} bid={bid} />)}
 
@@ -805,10 +857,7 @@ export default function DriverDashboard({ profile, setProfile }) {
             </div>
           </div>
           {historyBids.length === 0 && (
-            <div className="empty-state">
-              <TankerIcon type={profile.tanker_type} size={80} />
-              <p>No completed deliveries yet.</p>
-            </div>
+            <div className="empty-state"><TankerIcon type={profile.tanker_type} size={80} /><p>No completed deliveries yet.</p></div>
           )}
           {historyBids.map(bid => (
             <div key={bid.id} className="card" style={{marginBottom:'12px'}}>
@@ -833,6 +882,7 @@ export default function DriverDashboard({ profile, setProfile }) {
         </>
       )}
 
+      {/* Cancel Modal */}
       {cancelModal && (
         <div style={{position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(0,0,0,0.5)', zIndex:1000, display:'flex', alignItems:'flex-end'}}>
           <div style={{background:'white', borderRadius:'20px 20px 0 0', padding:'24px', width:'100%'}}>
@@ -853,13 +903,12 @@ export default function DriverDashboard({ profile, setProfile }) {
         </div>
       )}
 
+      {/* Withdraw Modal */}
       {withdrawModal && (
         <div style={{position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(0,0,0,0.5)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:'24px'}}>
           <div style={{background:'white', borderRadius:'16px', padding:'24px', width:'100%'}}>
             <div style={{fontWeight:700, fontSize:'16px', marginBottom:'8px'}}>🔙 Withdraw Bid</div>
-            <div style={{fontSize:'13px', color:'#5a6a85', marginBottom:'20px'}}>
-              Withdraw your bid of ₹{withdrawModal.price}?
-            </div>
+            <div style={{fontSize:'13px', color:'#5a6a85', marginBottom:'20px'}}>Withdraw your bid of ₹{withdrawModal.price}?</div>
             <div style={{display:'flex', gap:'8px'}}>
               <button onClick={() => withdrawBid(withdrawModal)} disabled={actionLoading} style={{
                 flex:1, padding:'12px', borderRadius:'10px', background:'#C62828',
