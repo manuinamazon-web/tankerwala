@@ -32,7 +32,16 @@ export default function Register() {
           })
           .catch(() => update('area', `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`))
       },
-      () => { setLocating(false); alert('Could not get location. Please type your area.') }
+      (err) => {
+        setLocating(false)
+        console.error('Location error:', err.code, err.message)
+        alert('Could not get location. Please type your area.')
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      }
     )
   }
 
@@ -214,3 +223,4 @@ export default function Register() {
     </div>
   )
 }
+
