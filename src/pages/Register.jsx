@@ -8,16 +8,13 @@ export default function Register() {
     name: '', phone: '', email: '', password: '', role: 'customer',
     tanker_type: 'water', area: '', service_radius: 10
   })
-  const [step, setStep] = useState('form')  // 'form' | 'otp'
-  const [otp, setOtp] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
   function update(field, val) { setForm(f => ({ ...f, [field]: val })) }
 
-  // Step 1 — Validate and send OTP to email
-  async function handleSendOTP(e) {
+  async function handleRegister(e) {
     e.preventDefault()
     setLoading(true); setError('')
 
@@ -44,55 +41,14 @@ export default function Register() {
       setLoading(false); return
     }
 
-    // Send OTP to email via Supabase (free, no setup needed)
-    const { error: otpError } = await supabase.auth.signInWithOtp({
+    // Create auth user
+    const { data, error: authError } = await supabase.auth.signUp({
       email: form.email,
+      password: form.password,
     })
 
-    if (otpError) {
-      setError('Failed to send OTP. Please check your email and try again.')
-      setLoading(false); return
-    }
-
-    setStep('otp')
-    setLoading(false)
-  }
-
-  // Step 2 — Verify OTP and create account
-  async function handleVerifyOTP(e) {
-    e.preventDefault()
-    setLoading(true); setError('')
-
-    if (!otp || otp.length < 6) {
-      setError('Please enter the 6-digit OTP sent to your email')
-      setLoading(false); return
-    }
-
-    // Verify OTP
-    const { data, error: verifyError } = await supabase.auth.verifyOtp({
-      email: form.email,
-      token: otp,
-      type: 'email',
-    })
-
-    if (verifyError) {
-      setError('Invalid or expired OTP. Please try again.')
-      setLoading(false); return
-    }
-
-    if (!data.user) {
-      setError('Verification failed. Please try again.')
-      setLoading(false); return
-    }
-
-    // Update password for the verified user
-    const { error: passError } = await supabase.auth.updateUser({
-      password: form.password
-    })
-    if (passError) {
-      setError('Account created but password setup failed. Please contact support.')
-      setLoading(false); return
-    }
+    if (authError) { setError(authError.message); setLoading(false); return }
+    if (!data.user) { setError('Registration failed. Please try again.'); setLoading(false); return }
 
     // Create profile
     const { error: profileError } = await supabase.from('profiles').insert({
@@ -110,99 +66,13 @@ export default function Register() {
       is_active: form.role === 'driver' ? false : true,
     })
 
-    if (profileError) {
-      setError(profileError.message)
-      setLoading(false); return
-    }
+    if (profileError) { setError(profileError.message); setLoading(false); return }
 
     setLoading(false)
     if (form.role === 'customer') navigate('/customer')
     else navigate('/driver')
   }
 
-  // Resend OTP
-  async function handleResendOTP() {
-    setLoading(true); setError('')
-    const { error: otpError } = await supabase.auth.signInWithOtp({ email: form.email })
-    if (otpError) {
-      setError('Failed to resend OTP. Please try again.')
-    } else {
-      setError('')
-      alert('OTP resent! Please check your email.')
-    }
-    setLoading(false)
-  }
-
-  // ─── OTP Verification Screen ───────────────────────────────────────────────
-  if (step === 'otp') {
-    return (
-      <div className="page" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '100vh' }}>
-        <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-          <div style={{ fontSize: '64px', marginBottom: '8px' }}>📧</div>
-          <h1 style={{ fontFamily: "'Baloo 2',cursive", fontSize: '24px', color: '#1565C0', margin: '0' }}>
-            Verify Your Email
-          </h1>
-          <p style={{ color: '#5a6a85', marginTop: '8px', fontSize: '14px', padding: '0 20px', lineHeight: '1.6' }}>
-            We sent a 6-digit OTP to<br />
-            <strong style={{ color: '#1565C0' }}>{form.email}</strong>
-          </p>
-        </div>
-
-        <div className="card">
-          {error && <div className="alert alert-error">{error}</div>}
-
-          <form onSubmit={handleVerifyOTP}>
-            <div className="form-group">
-              <label style={{ fontWeight: 600, fontSize: '14px', color: '#1a2a4a', textAlign: 'center', display: 'block' }}>
-                Enter 6-digit OTP
-              </label>
-              <input
-                type="number"
-                placeholder="000000"
-                value={otp}
-                onChange={e => setOtp(e.target.value.slice(0, 6))}
-                style={{
-                  fontSize: '28px', fontWeight: 800, letterSpacing: '10px',
-                  textAlign: 'center', color: '#1565C0', padding: '16px'
-                }}
-                required
-              />
-              <div style={{ fontSize: '12px', color: '#5a6a85', marginTop: '6px', textAlign: 'center' }}>
-                ⚠️ Also check your Spam / Junk folder
-              </div>
-            </div>
-
-            <button className="btn-primary" type="submit" disabled={loading}>
-              {loading ? 'Verifying...' : '✅ Verify & Create Account'}
-            </button>
-          </form>
-
-          <button
-            onClick={handleResendOTP}
-            disabled={loading}
-            style={{
-              width: '100%', padding: '12px', marginTop: '8px', borderRadius: '10px',
-              background: '#E3F2FD', color: '#1565C0', border: 'none',
-              fontWeight: 600, fontSize: '14px', cursor: 'pointer'
-            }}>
-            🔄 Resend OTP
-          </button>
-
-          <button
-            onClick={() => { setStep('form'); setOtp(''); setError('') }}
-            style={{
-              width: '100%', padding: '12px', marginTop: '8px', borderRadius: '10px',
-              background: '#F0F4FF', color: '#5a6a85', border: 'none',
-              fontWeight: 600, fontSize: '14px', cursor: 'pointer'
-            }}>
-            ← Back / Change Details
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  // ─── Main Registration Form ────────────────────────────────────────────────
   return (
     <div className="page" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '100vh' }}>
       <div style={{ textAlign: 'center', marginBottom: '24px' }}>
@@ -301,7 +171,7 @@ export default function Register() {
           </>
         )}
 
-        <form onSubmit={handleSendOTP}>
+        <form onSubmit={handleRegister}>
           <div className="form-group">
             <label>👤 Full Name</label>
             <input
@@ -333,9 +203,6 @@ export default function Register() {
               onChange={e => update('email', e.target.value)}
               required
             />
-            <div style={{ fontSize: '12px', color: '#1565C0', marginTop: '4px', fontWeight: 600 }}>
-              📨 OTP will be sent to this email for verification
-            </div>
           </div>
 
           <div className="form-group">
@@ -350,7 +217,7 @@ export default function Register() {
           </div>
 
           <button className="btn-primary" type="submit" disabled={loading}>
-            {loading ? 'Sending OTP...' : '📨 Send OTP to Email'}
+            {loading ? 'Creating Account...' : '✅ Create Account'}
           </button>
         </form>
 
