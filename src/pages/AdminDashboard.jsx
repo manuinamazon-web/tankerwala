@@ -62,21 +62,46 @@ export default function AdminDashboard({ profile }) {
     document.addEventListener('touchstart', unlock, { once: true })
 
     fetchAll()
-    const channel = supabase.channel('admin-live')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'recharge_requests' }, (payload) => {
-        showNotification('💳 New recharge request! Tap to approve.')
-        playAlert(880, 0.4, 3)
+
+    // ✅ Realtime channel
+    const channel = supabase.channel('admin-live-v2', {
+      config: { broadcast: { self: true } }
+    })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'recharge_requests' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          showNotification('💳 New recharge request! Tap to approve.')
+          playAlert(880, 0.4, 3)
+        }
         fetchAll()
       })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'recharge_requests' }, () => { fetchAll() })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, () => { fetchAll() })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'requests' }, () => {
-        showNotification('📦 New customer request!')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
         fetchAll()
       })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'commissions' }, () => { fetchAll() })
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'requests' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          showNotification('📦 New customer request!')
+          playAlert(660, 0.3, 2)
+        }
+        fetchAll()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'commissions' }, () => {
+        fetchAll()
+      })
+      .subscribe((status) => {
+        console.log('Admin realtime status:', status)
+      })
+
+    // ✅ Backup polling every 15 seconds
+    const pollInterval = setInterval(() => {
+      fetchAll()
+    }, 15000)
+
+    return () => {
+      supabase.removeChannel(channel)
+      clearInterval(pollInterval)
+      document.removeEventListener('click', unlock)
+      document.removeEventListener('touchstart', unlock)
+    }
   }, [])
 
   useEffect(() => { fetchAll() }, [tab])
