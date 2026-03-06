@@ -10,12 +10,10 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
-  // Detect if input is phone number or email
   function isPhoneNumber(val) {
     return /^\d{10}$/.test(val.trim())
   }
 
-  // Convert phone to fake email (same logic as Register.jsx)
   function phoneToEmail(phone) {
     return `${phone.replace(/\s+/g, '')}@tankerwala.app`
   }
@@ -33,20 +31,23 @@ export default function Login() {
       setLoading(false); return
     }
 
-    // Determine email to use for Supabase auth
     let emailToUse = ''
-    if (isPhoneNumber(input.trim())) {
-      // First look up real email from profiles table by phone number
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('email')
-        .eq('phone', input.trim())
-        .single()
 
-      if (profileData?.email) {
-        emailToUse = profileData.email
-      } else {
-        // Fallback to fake email for old driver accounts
+    if (isPhoneNumber(input.trim())) {
+      // Look up real email from profiles table by phone number
+      try {
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('email')
+          .eq('phone', input.trim())
+          .maybeSingle()
+
+        if (profileData?.email) {
+          emailToUse = profileData.email
+        } else {
+          emailToUse = phoneToEmail(input.trim())
+        }
+      } catch (err) {
         emailToUse = phoneToEmail(input.trim())
       }
     } else {
@@ -68,7 +69,6 @@ export default function Login() {
       setLoading(false); return
     }
 
-    // Fetch profile to redirect to correct dashboard
     const { data: profile } = await supabase
       .from('profiles')
       .select('role')
@@ -109,9 +109,6 @@ export default function Login() {
               required
               style={{ fontSize: '16px' }}
             />
-            <div style={{ fontSize: '12px', color: '#5a6a85', marginTop: '4px' }}>
-              Drivers & Customers: enter phone number · Admin: enter email
-            </div>
           </div>
 
           <div className="form-group">
