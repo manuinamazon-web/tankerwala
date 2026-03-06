@@ -1,6 +1,29 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+
+let audioCtx = null
+function getAudioContext() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+  if (audioCtx.state === 'suspended') audioCtx.resume()
+  return audioCtx
+}
+function playAlert(freq, vol, repeat) {
+  try {
+    const ctx = getAudioContext()
+    for (let i = 0; i < repeat; i++) {
+      setTimeout(() => {
+        const o = ctx.createOscillator()
+        const g = ctx.createGain()
+        o.connect(g); g.connect(ctx.destination)
+        o.frequency.value = freq
+        g.gain.value = vol
+        o.type = 'sine'
+        o.start(); o.stop(ctx.currentTime + 0.3)
+      }, i * 400)
+    }
+  } catch(e) {}
+}
 
 export default function AdminDashboard({ profile }) {
   const [tab, setTab] = useState('overview')
@@ -14,6 +37,7 @@ export default function AdminDashboard({ profile }) {
   const [loading, setLoading] = useState(true)
   const [notification, setNotification] = useState(null)
   const navigate = useNavigate()
+  const audioUnlocked = useRef(false)
 
   function showNotification(msg) {
     setNotification(msg)
@@ -21,10 +45,27 @@ export default function AdminDashboard({ profile }) {
   }
 
   useEffect(() => {
+    // Unlock audio on first interaction
+    function unlock() {
+      if (audioUnlocked.current) return
+      try {
+        const ctx = getAudioContext()
+        const o = ctx.createOscillator()
+        const g = ctx.createGain()
+        g.gain.value = 0
+        o.connect(g); g.connect(ctx.destination)
+        o.start(); o.stop(ctx.currentTime + 0.001)
+        audioUnlocked.current = true
+      } catch(e) {}
+    }
+    document.addEventListener('click', unlock, { once: true })
+    document.addEventListener('touchstart', unlock, { once: true })
+
     fetchAll()
     const channel = supabase.channel('admin-live')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'recharge_requests' }, () => {
-        showNotification('💳 New recharge request received!')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'recharge_requests' }, (payload) => {
+        showNotification('💳 New recharge request! Tap to approve.')
+        playAlert(880, 0.4, 3)
         fetchAll()
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'recharge_requests' }, () => { fetchAll() })
@@ -586,4 +627,3 @@ export default function AdminDashboard({ profile }) {
     </div>
   )
 }
-
