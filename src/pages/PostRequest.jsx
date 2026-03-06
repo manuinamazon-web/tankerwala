@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { TankerIcon } from '../components/TankerIcon'
+import { sendPushToDriver } from '../lib/pushNotifications'
 
 function getDistance(lat1, lon1, lat2, lon2) {
   if (!lat1 || !lon1 || !lat2 || !lon2) return null
@@ -110,6 +111,44 @@ export default function PostRequest({ profile }) {
     return form.capacity
   }
 
+  // ✅ Send push notifications to all nearby online drivers
+  async function notifyNearbyDrivers(requestLat, requestLng, tankerType, locationText, capacity) {
+    try {
+      // Get all online drivers with push subscriptions
+      const { data: drivers } = await supabase
+        .from('profiles')
+        .select('id, driver_lat, driver_lng, service_radius')
+        .eq('role', 'driver')
+        .eq('tanker_type', tankerType)
+        .eq('is_active', true)
+        .eq('is_online', true)
+        .not('driver_lat', 'is', null)
+
+      if (!drivers || drivers.length === 0) return
+
+      // Filter drivers within their service radius
+      const nearbyDriverIds = drivers
+        .filter(d => {
+          const dist = getDistance(requestLat, requestLng, d.driver_lat, d.driver_lng)
+          const radius = d.service_radius || 10
+          return !dist || parseFloat(dist) <= radius
+        })
+        .map(d => d.id)
+
+      // Send push to each nearby driver
+      const tankerLabel = tankerType === 'water' ? '💧 Water' : '🚽 Sewage'
+      for (const driverId of nearbyDriverIds) {
+        await sendPushToDriver(
+          driverId,
+          `🔔 New ${tankerLabel} Tanker Request!`,
+          `${capacity}L needed at ${locationText}. Open app to bid now!`
+        )
+      }
+    } catch (err) {
+      console.error('Push notification error:', err)
+    }
+  }
+
   async function handleSubmit(e) {
     e.preventDefault()
     const finalCapacity = getFinalCapacity()
@@ -132,6 +171,12 @@ export default function PostRequest({ profile }) {
     })
 
     if (error) { setError(error.message); setLoading(false); return }
+
+    // ✅ Send push notifications to nearby online drivers
+    if (lat && lng) {
+      await notifyNearbyDrivers(lat, lng, form.tanker_type, form.address, parseInt(finalCapacity))
+    }
+
     navigate('/customer')
   }
 
@@ -171,8 +216,6 @@ export default function PostRequest({ profile }) {
           {/* Capacity */}
           <div className="form-group">
             <label>Tank Capacity (Litres)</label>
-
-            {/* Quick select buttons */}
             {!useCustom && (
               <div style={{display:'flex', flexWrap:'wrap', gap:'8px', marginBottom:'10px'}}>
                 {QUICK_CAPACITIES.map(c => (
@@ -202,7 +245,6 @@ export default function PostRequest({ profile }) {
               </div>
             )}
 
-            {/* Custom input */}
             {useCustom && (
               <div>
                 <div style={{display:'flex', gap:'8px', alignItems:'center', marginBottom:'8px'}}>
@@ -225,7 +267,6 @@ export default function PostRequest({ profile }) {
               </div>
             )}
 
-            {/* Show selected capacity */}
             {(form.capacity || customCapacity) && (
               <div style={{
                 background:'#E3F2FD', borderRadius:'8px', padding:'8px 12px',
