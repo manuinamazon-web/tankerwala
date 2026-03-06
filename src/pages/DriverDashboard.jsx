@@ -34,6 +34,47 @@ function playSound(freq, vol, repeat) {
   } catch(e) {}
 }
 
+function playRinging() {
+  try {
+    const ctx = getAudioContext()
+    const ringPattern = [
+      { start: 0.0, duration: 0.15, freq: 1000 },
+      { start: 0.2, duration: 0.15, freq: 1000 },
+      { start: 0.4, duration: 0.15, freq: 1000 },
+      { start: 1.2, duration: 0.15, freq: 1000 },
+      { start: 1.4, duration: 0.15, freq: 1000 },
+      { start: 1.6, duration: 0.15, freq: 1000 },
+      { start: 2.4, duration: 0.15, freq: 1000 },
+      { start: 2.6, duration: 0.15, freq: 1000 },
+      { start: 2.8, duration: 0.15, freq: 1000 },
+    ]
+    ringPattern.forEach(({ start, duration, freq }) => {
+      const o = ctx.createOscillator()
+      const g = ctx.createGain()
+      o.connect(g); g.connect(ctx.destination)
+      o.frequency.value = freq
+      o.type = 'sine'
+      g.gain.setValueAtTime(0, ctx.currentTime + start)
+      g.gain.linearRampToValueAtTime(0.5, ctx.currentTime + start + 0.02)
+      g.gain.linearRampToValueAtTime(0.5, ctx.currentTime + start + duration - 0.02)
+      g.gain.linearRampToValueAtTime(0, ctx.currentTime + start + duration)
+      o.start(ctx.currentTime + start)
+      o.stop(ctx.currentTime + start + duration + 0.1)
+    })
+  } catch(e) {}
+  try {
+    if (navigator.vibrate) {
+      navigator.vibrate([
+        500, 200, 500, 200, 500,
+        800,
+        500, 200, 500, 200, 500,
+        800,
+        500, 200, 500, 200, 500
+      ])
+    }
+  } catch(e) {}
+}
+
 function getDistance(lat1, lon1, lat2, lon2) {
   if (!lat1 || !lon1 || !lat2 || !lon2) return null
   const R = 6371
@@ -132,7 +173,7 @@ export default function DriverDashboard({ profile, setProfile }) {
             payload.new?.location_lat, payload.new?.location_lng
           )
           if (!dist || parseFloat(dist) <= (serviceRadius + 0.5)) {
-            playSound(440, 0.4, 4)
+            playRinging()
             showNotification('🔔 New request arrived!')
             fetchData()
           }
@@ -143,9 +184,7 @@ export default function DriverDashboard({ profile, setProfile }) {
           if (payload.new?.status === 'accepted') {
             playSound(880, 0.4, 3)
             showNotification('🎉 Your bid was accepted!')
-          }
-          if (payload.new?.status === 'rejected') {
-            showNotification('😔 Customer chose another driver.')
+            setTab('delivery')
           }
           fetchData()
         }
@@ -276,7 +315,12 @@ export default function DriverDashboard({ profile, setProfile }) {
       tank_capacity: parseInt(tankCapacity)
     })
     if (error) alert(error.message)
-    else { alert('Bid submitted!'); fetchData() }
+    else {
+      setBidPrices(p => { const n = {...p}; delete n[requestId]; return n })
+      setBidTimes(p => { const n = {...p}; delete n[requestId]; return n })
+      setBidCapacities(p => { const n = {...p}; delete n[requestId]; return n })
+      fetchData()
+    }
   }
 
   async function withdrawBid(bid) {
@@ -339,20 +383,12 @@ export default function DriverDashboard({ profile, setProfile }) {
     navigate('/')
   }
 
-  // Tab data
   const pendingBids = myBids.filter(b => b.status === 'pending')
   const activeBids = myBids.filter(b => b.status === 'accepted')
-  const todayWonBids = myBids.filter(b => b.status === 'accepted' && isToday(b.created_at))
-  const lostBids = myBids.filter(b => b.status === 'rejected' || b.status === 'withdrawn' || b.status === 'cancelled')
   const historyBids = myBids.filter(b => b.status === 'completed')
-
-  // Earnings
-  const todayEarnings = historyBids.filter(b => isToday(b.created_at)).length * 0
-  const totalDeliveries = historyBids.length
   const thisWeekDeliveries = historyBids.filter(b => {
     const d = new Date(b.created_at)
-    const now = new Date()
-    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
     return d >= weekAgo
   }).length
 
@@ -360,7 +396,6 @@ export default function DriverDashboard({ profile, setProfile }) {
     const req = bid.requests
     if (!req) return null
     const currentStatus = req.delivery_status || 'pending'
-
     return (
       <div style={{marginTop:'10px'}}>
         <div style={{display:'flex', gap:'4px', marginBottom:'10px'}}>
@@ -370,7 +405,6 @@ export default function DriverDashboard({ profile, setProfile }) {
             return <div key={stage} style={{flex:1, height:'6px', borderRadius:'4px', background: filled ? '#2E7D32' : '#E0E0E0'}} />
           })}
         </div>
-
         {currentStatus === 'pending' && (
           <button onClick={() => updateDeliveryStatus(bid.request_id, 'loading')} style={{
             width:'100%', padding:'12px', background:'#FF6F00', color:'white',
@@ -394,7 +428,6 @@ export default function DriverDashboard({ profile, setProfile }) {
             ✅ Waiting for customer OTP
           </div>
         )}
-
         {req.customer_phone && (
           <a href={`tel:${req.customer_phone}`} style={{
             display:'block', background:'#1565C0', color:'white', padding:'10px',
@@ -402,14 +435,12 @@ export default function DriverDashboard({ profile, setProfile }) {
             textDecoration:'none', marginBottom:'8px'
           }}>📞 Call Customer: {req.customer_phone}</a>
         )}
-
         {currentStatus === 'arrived' && (
           <button onClick={() => navigate(`/driver/otp/${bid.request_id}`)} style={{
             width:'100%', padding:'12px', background:'#2E7D32', color:'white',
             border:'none', borderRadius:'8px', fontWeight:700, fontSize:'14px', cursor:'pointer', marginBottom:'8px'
           }}>🔐 Enter OTP to Complete Delivery</button>
         )}
-
         <button onClick={() => setCancelModal(bid)} style={{
           width:'100%', padding:'10px', background:'#FFEBEE', color:'#C62828',
           border:'1.5px solid #FFCDD2', borderRadius:'8px', fontWeight:600,
@@ -419,7 +450,7 @@ export default function DriverDashboard({ profile, setProfile }) {
     )
   }
 
-  function BidCard({ bid, showHistory }) {
+  function BidCard({ bid }) {
     return (
       <div className="card" style={{marginBottom:'12px'}}>
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
@@ -429,6 +460,13 @@ export default function DriverDashboard({ profile, setProfile }) {
             </div>
             {bid.requests?.location_text && (
               <div style={{fontSize:'13px', color:'#5a6a85', marginTop:'2px'}}>🏘️ {bid.requests.location_text}</div>
+            )}
+            {bid.requests?.location_lat && bid.requests?.location_lng && (
+              <a href={`https://www.google.com/maps?q=${bid.requests.location_lat},${bid.requests.location_lng}`}
+                target="_blank" rel="noreferrer"
+                style={{fontSize:'12px', color:'#1565C0', fontWeight:600, textDecoration:'none'}}>
+                📍 View on Google Maps →
+              </a>
             )}
             <div style={{fontSize:'16px', fontWeight:800, color:'#1565C0', fontFamily:"'Baloo 2',cursive", marginTop:'4px'}}>₹{bid.price}</div>
             <div style={{display:'flex', gap:'6px', marginTop:'4px', flexWrap:'wrap'}}>
@@ -443,11 +481,6 @@ export default function DriverDashboard({ profile, setProfile }) {
               🕐 {new Date(bid.created_at).toLocaleString('en-IN', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}
             </div>
           </div>
-          <span style={{
-            padding:'6px 12px', borderRadius:'20px', fontSize:'12px', fontWeight:600, marginLeft:'8px',
-            background: bid.status==='accepted' ? '#E8F5E9' : bid.status==='completed' ? '#E3F2FD' : bid.status==='rejected' ? '#FFEBEE' : bid.status==='withdrawn' ? '#F3E5F5' : '#FFF3E0',
-            color: bid.status==='accepted' ? '#2E7D32' : bid.status==='completed' ? '#1565C0' : bid.status==='rejected' ? '#C62828' : bid.status==='withdrawn' ? '#7B1FA2' : '#E65100'
-          }}>{bid.status?.toUpperCase()}</span>
         </div>
 
         {bid.status === 'accepted' && <DeliveryStatusButtons bid={bid} />}
@@ -462,22 +495,7 @@ export default function DriverDashboard({ profile, setProfile }) {
 
         {bid.status === 'completed' && (
           <div style={{background:'#E3F2FD', borderRadius:'8px', padding:'8px 10px', marginTop:'8px', fontSize:'13px', color:'#1565C0', fontWeight:600}}>
-            🎉 Delivery completed! {bid.requests?.accepted_price ? `₹${bid.requests.accepted_price} earned` : ''}
-          </div>
-        )}
-        {bid.status === 'rejected' && (
-          <div style={{background:'#FFEBEE', borderRadius:'8px', padding:'8px 10px', marginTop:'8px', fontSize:'12px', color:'#C62828'}}>
-            😔 Customer chose another driver.
-          </div>
-        )}
-        {bid.status === 'withdrawn' && (
-          <div style={{background:'#F3E5F5', borderRadius:'8px', padding:'8px 10px', marginTop:'8px', fontSize:'12px', color:'#7B1FA2'}}>
-            🔙 You withdrew this bid.
-          </div>
-        )}
-        {bid.status === 'cancelled' && (
-          <div style={{background:'#FFF3E0', borderRadius:'8px', padding:'8px 10px', marginTop:'8px', fontSize:'12px', color:'#E65100'}}>
-            ⚠️ You cancelled this delivery. ₹10 refunded.
+            🎉 Delivery completed!
           </div>
         )}
       </div>
@@ -571,35 +589,34 @@ export default function DriverDashboard({ profile, setProfile }) {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{display:'flex', gap:'4px', marginBottom:'16px', overflowX:'auto', paddingBottom:'4px'}}>
+      {/* 4 Tabs */}
+      <div style={{display:'flex', gap:'6px', marginBottom:'16px'}}>
         {[
-          { key:'open', label:`🔔 New`, count: requests.length, color:'#1565C0' },
-          { key:'pending', label:`⏳ Pending`, count: pendingBids.length, color:'#FF6F00' },
-          { key:'active', label:`✅ Active`, count: activeBids.length, color:'#2E7D32' },
-          { key:'lost', label:`❌ Lost`, count: lostBids.length, color:'#C62828' },
-          { key:'history', label:`📋 History`, count: historyBids.length, color:'#7B1FA2' },
+          { key:'open', label:'🔔 New', count: requests.length, color:'#1565C0' },
+          { key:'mybids', label:'⏳ My Bids', count: pendingBids.length, color:'#FF6F00' },
+          { key:'delivery', label:'🚚 Delivery', count: activeBids.length, color:'#2E7D32' },
+          { key:'history', label:'📋 History', count: historyBids.length, color:'#7B1FA2' },
         ].map(t => (
           <button key={t.key} onClick={() => setTab(t.key)} style={{
-            flex:'0 0 auto', padding:'8px 12px', borderRadius:'10px', fontWeight:700, fontSize:'12px',
+            flex:1, padding:'8px 4px', borderRadius:'10px', fontWeight:700, fontSize:'11px',
             background: tab===t.key ? t.color : '#F0F4FF',
-            color: tab===t.key ? 'white' : '#5a6a85', border:'none', cursor:'pointer',
-            whiteSpace:'nowrap'
-          }}>{t.label} ({t.count})</button>
+            color: tab===t.key ? 'white' : '#5a6a85', border:'none', cursor:'pointer'
+          }}>{t.label}<br/>({t.count})</button>
         ))}
       </div>
 
       {loading && <div className="spinner"></div>}
 
-      {/* New Requests Tab */}
+      {/* New Requests */}
       {tab === 'open' && !loading && requests.map(req => {
         const dist = getDistance(driverLat, driverLng, req.location_lat, req.location_lng)
         const mapsUrl = req.location_lat && req.location_lng
           ? `https://www.google.com/maps?q=${req.location_lat},${req.location_lng}`
           : `https://www.google.com/maps/search/${encodeURIComponent(req.location_text)}`
-        const alreadyBid = myBids.some(b => b.request_id === req.id && b.status !== 'withdrawn')
+        const existingBid = myBids.find(b => b.request_id === req.id && b.status === 'pending')
+        const alreadyBid = !!existingBid
         return (
-          <div key={req.id} className="card" style={{marginBottom:'12px', opacity: alreadyBid ? 0.7 : 1}}>
+          <div key={req.id} className="card" style={{marginBottom:'12px'}}>
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'8px'}}>
               <div style={{display:'flex', gap:'6px', alignItems:'center'}}>
                 <span style={{background: req.tanker_type==='water' ? '#E3F2FD' : '#E8F5E9', color: req.tanker_type==='water' ? '#1565C0' : '#2E7D32', padding:'4px 10px', borderRadius:'20px', fontSize:'13px', fontWeight:600}}>
@@ -626,14 +643,23 @@ export default function DriverDashboard({ profile, setProfile }) {
               🕐 {new Date(req.created_at).toLocaleString('en-IN', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}
             </div>
             {alreadyBid ? (
-              <div style={{textAlign:'center', color:'#2E7D32', fontWeight:600, fontSize:'14px'}}>✅ Bid submitted</div>
+              <div>
+                <div style={{background:'#E8F5E9', borderRadius:'8px', padding:'10px', marginBottom:'8px', textAlign:'center', color:'#2E7D32', fontWeight:700, fontSize:'14px'}}>
+                  ✅ Bid submitted — ₹{existingBid.price}
+                </div>
+                <button onClick={() => setWithdrawModal(existingBid)} style={{
+                  width:'100%', padding:'8px', background:'#FFF3E0', color:'#E65100',
+                  border:'1.5px solid #FFE0B2', borderRadius:'8px', fontWeight:600,
+                  fontSize:'12px', cursor:'pointer'
+                }}>🔙 Withdraw Bid</button>
+              </div>
             ) : (
               <>
                 <input
                   type="number" placeholder="Your price (₹)"
                   value={bidPrices[req.id] || ''}
                   onChange={e => setBidPrices(p => ({...p, [req.id]: e.target.value}))}
-                  style={{width:'100%', padding:'12px', borderRadius:'8px', border:'1.5px solid #C5D5F0', fontSize:'16px', marginBottom:'8px', boxSizing:'border-box', fontWeight:700}}
+                  style={{width:'100%', padding:'12px', borderRadius:'8px', border:'1.5px solid #C5D5F0', fontSize:'18px', marginBottom:'8px', boxSizing:'border-box', fontWeight:800, color:'#1565C0'}}
                 />
                 <div style={{display:'flex', gap:'8px', marginBottom:'8px'}}>
                   <select
@@ -665,43 +691,46 @@ export default function DriverDashboard({ profile, setProfile }) {
         <div className="empty-state">
           <div className="icon">{tankerIcon}</div>
           <p>No new requests within {serviceRadius}km.</p>
+          <p style={{fontSize:'13px', color:'#5a6a85'}}>Increase radius or wait for requests!</p>
         </div>
       )}
 
-      {/* Pending Tab */}
-      {tab === 'pending' && !loading && pendingBids.length === 0 && (
-        <div className="empty-state"><div className="icon">⏳</div><p>No pending bids.</p></div>
+      {/* My Bids */}
+      {tab === 'mybids' && !loading && pendingBids.length === 0 && (
+        <div className="empty-state">
+          <div className="icon">⏳</div>
+          <p>No pending bids.</p>
+          <p style={{fontSize:'13px', color:'#5a6a85'}}>Submit bids on new requests!</p>
+        </div>
       )}
-      {tab === 'pending' && !loading && pendingBids.map(bid => <BidCard key={bid.id} bid={bid} />)}
+      {tab === 'mybids' && !loading && pendingBids.map(bid => <BidCard key={bid.id} bid={bid} />)}
 
-      {/* Active Tab */}
-      {tab === 'active' && !loading && activeBids.length === 0 && (
-        <div className="empty-state"><div className="icon">✅</div><p>No active deliveries.</p></div>
+      {/* Delivery */}
+      {tab === 'delivery' && !loading && activeBids.length === 0 && (
+        <div className="empty-state">
+          <div className="icon">🚚</div>
+          <p>No active deliveries.</p>
+          <p style={{fontSize:'13px', color:'#5a6a85'}}>Win a bid to start delivering!</p>
+        </div>
       )}
-      {tab === 'active' && !loading && activeBids.map(bid => <BidCard key={bid.id} bid={bid} />)}
+      {tab === 'delivery' && !loading && activeBids.map(bid => <BidCard key={bid.id} bid={bid} />)}
 
-      {/* Lost Tab */}
-      {tab === 'lost' && !loading && lostBids.length === 0 && (
-        <div className="empty-state"><div className="icon">👍</div><p>No lost bids!</p></div>
-      )}
-      {tab === 'lost' && !loading && lostBids.map(bid => <BidCard key={bid.id} bid={bid} />)}
-
-      {/* History Tab */}
+      {/* History */}
       {tab === 'history' && !loading && (
         <>
           <div style={{background:'linear-gradient(135deg, #7B1FA2, #9C27B0)', borderRadius:'12px', padding:'16px', marginBottom:'16px', color:'white'}}>
-            <div style={{fontSize:'13px', opacity:0.85, marginBottom:'8px'}}>📊 Your Stats</div>
+            <div style={{fontSize:'13px', opacity:0.85, marginBottom:'8px'}}>📊 Your Delivery Stats</div>
             <div style={{display:'flex', gap:'12px'}}>
               <div style={{flex:1, background:'rgba(255,255,255,0.15)', borderRadius:'10px', padding:'12px', textAlign:'center'}}>
-                <div style={{fontSize:'24px', fontWeight:800, fontFamily:"'Baloo 2',cursive"}}>{totalDeliveries}</div>
-                <div style={{fontSize:'11px', opacity:0.85}}>Total Deliveries</div>
+                <div style={{fontSize:'28px', fontWeight:800, fontFamily:"'Baloo 2',cursive"}}>{historyBids.length}</div>
+                <div style={{fontSize:'11px', opacity:0.85}}>Total</div>
               </div>
               <div style={{flex:1, background:'rgba(255,255,255,0.15)', borderRadius:'10px', padding:'12px', textAlign:'center'}}>
-                <div style={{fontSize:'24px', fontWeight:800, fontFamily:"'Baloo 2',cursive"}}>{thisWeekDeliveries}</div>
+                <div style={{fontSize:'28px', fontWeight:800, fontFamily:"'Baloo 2',cursive"}}>{thisWeekDeliveries}</div>
                 <div style={{fontSize:'11px', opacity:0.85}}>This Week</div>
               </div>
               <div style={{flex:1, background:'rgba(255,255,255,0.15)', borderRadius:'10px', padding:'12px', textAlign:'center'}}>
-                <div style={{fontSize:'24px', fontWeight:800, fontFamily:"'Baloo 2',cursive"}}>{historyBids.filter(b => isToday(b.created_at)).length}</div>
+                <div style={{fontSize:'28px', fontWeight:800, fontFamily:"'Baloo 2',cursive"}}>{historyBids.filter(b => isToday(b.created_at)).length}</div>
                 <div style={{fontSize:'11px', opacity:0.85}}>Today</div>
               </div>
             </div>
@@ -709,7 +738,25 @@ export default function DriverDashboard({ profile, setProfile }) {
           {historyBids.length === 0 && (
             <div className="empty-state"><div className="icon">📋</div><p>No completed deliveries yet.</p></div>
           )}
-          {historyBids.map(bid => <BidCard key={bid.id} bid={bid} />)}
+          {historyBids.map(bid => (
+            <div key={bid.id} className="card" style={{marginBottom:'12px'}}>
+              <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:700}}>
+                    {bid.requests?.tanker_type === 'water' ? '🚰 Water' : '🚛 Sewage'} — {bid.requests?.capacity}L
+                  </div>
+                  {bid.requests?.location_text && (
+                    <div style={{fontSize:'13px', color:'#5a6a85', marginTop:'2px'}}>🏘️ {bid.requests.location_text}</div>
+                  )}
+                  <div style={{fontSize:'16px', fontWeight:800, color:'#1565C0', fontFamily:"'Baloo 2',cursive", marginTop:'4px'}}>₹{bid.price}</div>
+                  <div style={{fontSize:'12px', color:'#5a6a85', marginTop:'4px'}}>
+                    🕐 {new Date(bid.created_at).toLocaleString('en-IN', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}
+                  </div>
+                </div>
+                <span style={{background:'#E3F2FD', color:'#1565C0', padding:'6px 12px', borderRadius:'20px', fontSize:'12px', fontWeight:600}}>✅ DONE</span>
+              </div>
+            </div>
+          ))}
         </>
       )}
 
