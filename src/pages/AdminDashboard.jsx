@@ -63,41 +63,33 @@ export default function AdminDashboard({ profile }) {
 
     fetchAll()
 
-    // ✅ Realtime channel
-    const channel = supabase.channel('admin-live-v2', {
-      config: { broadcast: { self: true } }
-    })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'recharge_requests' }, (payload) => {
-        if (payload.eventType === 'INSERT') {
-          showNotification('💳 New recharge request! Tap to approve.')
-          playAlert(880, 0.4, 3)
-        }
-        fetchAll()
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
-        fetchAll()
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'requests' }, (payload) => {
-        if (payload.eventType === 'INSERT') {
-          showNotification('📦 New customer request!')
-          playAlert(660, 0.3, 2)
-        }
-        fetchAll()
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'commissions' }, () => {
-        fetchAll()
-      })
-      .subscribe((status) => {
-        console.log('Admin realtime status:', status)
-      })
+    // ✅ Poll every 8 seconds — reliable on free plan
+    let lastRechargeCount = 0
+    let lastRequestCount = 0
 
-    // ✅ Backup polling every 15 seconds
-    const pollInterval = setInterval(() => {
+    const pollInterval = setInterval(async () => {
+      const [{ count: rechargeCount }, { count: requestCount }] = await Promise.all([
+        supabase.from('recharge_requests').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
+        supabase.from('requests').select('*', { count: 'exact', head: true }).eq('status', 'pending')
+      ])
+
+      // New recharge request came in
+      if (lastRechargeCount > 0 && rechargeCount > lastRechargeCount) {
+        showNotification('💳 New recharge request! Tap to approve.')
+        playAlert(880, 0.4, 3)
+      }
+      // New customer request came in
+      if (lastRequestCount > 0 && requestCount > lastRequestCount) {
+        showNotification('📦 New customer request!')
+        playAlert(660, 0.3, 2)
+      }
+
+      lastRechargeCount = rechargeCount || 0
+      lastRequestCount = requestCount || 0
       fetchAll()
-    }, 15000)
+    }, 8000)
 
     return () => {
-      supabase.removeChannel(channel)
       clearInterval(pollInterval)
       document.removeEventListener('click', unlock)
       document.removeEventListener('touchstart', unlock)
