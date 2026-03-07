@@ -38,6 +38,7 @@ export default function DriverOTP({ profile }) {
       return
     }
 
+    // ✅ Mark delivery completed
     await supabase.from('requests').update({
       status: 'completed',
       otp_verified: true,
@@ -48,8 +49,11 @@ export default function DriverOTP({ profile }) {
       status: 'completed'
     }).eq('request_id', requestId).eq('driver_id', profile.id)
 
+    // ✅ Increment driver's total_deliveries
+    await supabase.rpc('increment_deliveries', { driver_id: profile.id })
+
     navigate('/driver')
-    alert('🎉 Delivery completed successfully!')
+    alert('🎉 Delivery completed successfully! Customer will now rate you.')
   }
 
   return (
@@ -128,3 +132,4 @@ export default function DriverOTP({ profile }) {
     </div>
   )
 }
+
