@@ -36,12 +36,37 @@ const DELIVERY_STATUS_INFO = {
   completed:  { label: 'Delivered!',               icon: '✅', color: '#1565C0', bg: '#E3F2FD' },
 }
 
+// ⭐ Star Rating Component
+function StarPicker({ value, onChange }) {
+  return (
+    <div style={{display:'flex', gap:'8px', justifyContent:'center', margin:'16px 0'}}>
+      {[1,2,3,4,5].map(star => (
+        <span
+          key={star}
+          onClick={() => onChange(star)}
+          style={{
+            fontSize:'44px', cursor:'pointer',
+            color: star <= value ? '#FFA726' : '#E0E0E0',
+            transition:'color 0.15s'
+          }}
+        >★</span>
+      ))}
+    </div>
+  )
+}
+
 export default function CustomerDashboard({ profile }) {
   const [tab, setTab] = useState('active')
   const [requests, setRequests] = useState([])
   const [bidCounts, setBidCounts] = useState({})
   const [loading, setLoading] = useState(true)
   const [notification, setNotification] = useState(null)
+  const [ratingModal, setRatingModal] = useState(null) // { requestId, driverId, driverName }
+  const [ratingValue, setRatingValue] = useState(0)
+  const [ratingSubmitting, setRatingSubmitting] = useState(false)
+  const [ratedRequests, setRatedRequests] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('ratedRequests') || '[]') } catch { return [] }
+  })
   const audioUnlocked = useRef(false)
   const navigate = useNavigate()
 
@@ -95,9 +120,15 @@ export default function CustomerDashboard({ profile }) {
             playSound(440, 0.4, 3)
             showNotification('⚠️ Driver cancelled! Please choose another bid.')
           }
-          if (newStatus === 'completed') {
+          if (newStatus === 'completed' && oldStatus !== 'completed') {
             playSound(528, 0.4, 4)
-            showNotification('🎉 Delivery completed successfully!')
+            showNotification('🎉 Delivery completed! Please rate your driver.')
+            // Show rating modal after short delay
+            setTimeout(() => {
+              if (payload.new?.driver_id && payload.new?.driver_name) {
+                showRatingModal(payload.new.id, payload.new.driver_id, payload.new.driver_name)
+              }
+            }, 1500)
           }
           if (newDelivery !== oldDelivery) {
             const info = DELIVERY_STATUS_INFO[newDelivery]
@@ -120,6 +151,52 @@ export default function CustomerDashboard({ profile }) {
   function showNotification(msg) {
     setNotification(msg)
     setTimeout(() => setNotification(null), 6000)
+  }
+
+  function showRatingModal(requestId, driverId, driverName) {
+    if (ratedRequests.includes(requestId)) return
+    setRatingValue(0)
+    setRatingModal({ requestId, driverId, driverName })
+  }
+
+  async function submitRating() {
+    if (ratingValue === 0) return alert('Please select a star rating!')
+    setRatingSubmitting(true)
+
+    // Get current driver rating
+    const { data: driver } = await supabase
+      .from('profiles')
+      .select('rating, total_ratings')
+      .eq('id', ratingModal.driverId)
+      .single()
+
+    const currentRating = parseFloat(driver?.rating || 0)
+    const currentCount = parseInt(driver?.total_ratings || 0)
+
+    // Calculate new average
+    const newCount = currentCount + 1
+    const newRating = ((currentRating * currentCount) + ratingValue) / newCount
+
+    // Update driver profile
+    await supabase.from('profiles').update({
+      rating: parseFloat(newRating.toFixed(2)),
+      total_ratings: newCount
+    }).eq('id', ratingModal.driverId)
+
+    // Mark request as rated
+    await supabase.from('requests').update({
+      is_rated: true,
+      customer_rating: ratingValue
+    }).eq('id', ratingModal.requestId)
+
+    // Save locally so modal doesn't show again
+    const updated = [...ratedRequests, ratingModal.requestId]
+    setRatedRequests(updated)
+    localStorage.setItem('ratedRequests', JSON.stringify(updated))
+
+    setRatingSubmitting(false)
+    setRatingModal(null)
+    showNotification('⭐ Thank you for rating!')
   }
 
   async function fetchRequests() {
@@ -197,11 +274,10 @@ export default function CustomerDashboard({ profile }) {
 
   function RequestCard({ req }) {
     const bidCount = bidCounts[req.id] || 0
+    const isRated = ratedRequests.includes(req.id) || req.is_rated
     return (
       <div className="card" style={{marginBottom:'12px'}}>
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'8px'}}>
-
-          {/* Tanker icon + type + capacity */}
           <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
             <TankerIcon type={req.tanker_type} size={44} />
             <div>
@@ -214,7 +290,6 @@ export default function CustomerDashboard({ profile }) {
               <div style={{fontSize:'13px', color:'#5a6a85'}}>{req.capacity} Litres</div>
             </div>
           </div>
-
           <span style={{
             padding:'4px 10px', borderRadius:'20px', fontSize:'12px', fontWeight:600,
             background: req.status==='accepted' ? '#E8F5E9' : req.status==='completed' ? '#E3F2FD' : req.status==='pending' ? '#FFF3E0' : '#FFEBEE',
@@ -278,12 +353,29 @@ export default function CustomerDashboard({ profile }) {
           </div>
         )}
 
+        {/* ⭐ Rating section for completed requests */}
         {req.status === 'completed' && (
           <div style={{background:'#E3F2FD', borderRadius:'10px', padding:'12px', marginBottom:'12px'}}>
             <div style={{fontWeight:700, color:'#1565C0', marginBottom:'4px'}}>🎉 Delivery completed!</div>
             {req.accepted_price && (
-              <div style={{fontSize:'14px', color:'#333'}}>💰 Amount paid: <strong>₹{req.accepted_price}</strong></div>
+              <div style={{fontSize:'14px', color:'#333', marginBottom:'8px'}}>💰 Amount paid: <strong>₹{req.accepted_price}</strong></div>
             )}
+            {!isRated && req.driver_id ? (
+              <button
+                onClick={() => showRatingModal(req.id, req.driver_id, req.driver_name)}
+                style={{
+                  width:'100%', padding:'10px', borderRadius:'10px',
+                  background:'#FFA726', color:'white', border:'none',
+                  fontWeight:700, fontSize:'14px', cursor:'pointer'
+                }}
+              >
+                ⭐ Rate Your Driver
+              </button>
+            ) : isRated ? (
+              <div style={{textAlign:'center', fontSize:'13px', color:'#2E7D32', fontWeight:600}}>
+                ⭐ You rated this delivery — Thank you!
+              </div>
+            ) : null}
           </div>
         )}
 
@@ -334,6 +426,68 @@ export default function CustomerDashboard({ profile }) {
         </div>
       )}
 
+      {/* ⭐ Rating Modal */}
+      {ratingModal && (
+        <div style={{
+          position:'fixed', top:0, left:0, right:0, bottom:0,
+          background:'rgba(0,0,0,0.6)', zIndex:1000,
+          display:'flex', alignItems:'center', justifyContent:'center', padding:'20px'
+        }}>
+          <div style={{
+            background:'white', borderRadius:'20px', padding:'28px',
+            width:'100%', maxWidth:'360px', textAlign:'center',
+            boxShadow:'0 20px 60px rgba(0,0,0,0.3)'
+          }}>
+            <div style={{fontSize:'48px', marginBottom:'8px'}}>🎉</div>
+            <div style={{fontWeight:800, fontSize:'20px', color:'#1a2a4a', marginBottom:'4px'}}>
+              Delivery Complete!
+            </div>
+            <div style={{fontSize:'14px', color:'#5a6a85', marginBottom:'4px'}}>
+              How was your experience with
+            </div>
+            <div style={{fontWeight:700, fontSize:'18px', color:'#1565C0', marginBottom:'16px'}}>
+              {ratingModal.driverName}?
+            </div>
+
+            <StarPicker value={ratingValue} onChange={setRatingValue} />
+
+            <div style={{fontSize:'14px', color:'#5a6a85', marginBottom:'20px', minHeight:'20px'}}>
+              {ratingValue === 1 && '😞 Poor'}
+              {ratingValue === 2 && '😐 Fair'}
+              {ratingValue === 3 && '🙂 Good'}
+              {ratingValue === 4 && '😊 Very Good'}
+              {ratingValue === 5 && '🤩 Excellent!'}
+            </div>
+
+            <button
+              onClick={submitRating}
+              disabled={ratingSubmitting || ratingValue === 0}
+              style={{
+                width:'100%', padding:'14px', borderRadius:'12px',
+                background: ratingValue === 0 ? '#E0E0E0' : '#1565C0',
+                color: ratingValue === 0 ? '#9E9E9E' : 'white',
+                border:'none', fontWeight:700, fontSize:'16px',
+                cursor: ratingValue === 0 ? 'not-allowed' : 'pointer',
+                marginBottom:'10px'
+              }}
+            >
+              {ratingSubmitting ? '⏳ Submitting...' : '⭐ Submit Rating'}
+            </button>
+
+            <button
+              onClick={() => setRatingModal(null)}
+              style={{
+                width:'100%', padding:'10px', borderRadius:'12px',
+                background:'#F0F4FF', color:'#5a6a85',
+                border:'none', fontWeight:600, fontSize:'14px', cursor:'pointer'
+              }}
+            >
+              Skip for now
+            </button>
+          </div>
+        </div>
+      )}
+
       <button className="btn-primary" style={{marginBottom:'16px'}} onClick={() => navigate('/customer/post')}>
         + Post New Tanker Request
       </button>
@@ -378,3 +532,4 @@ export default function CustomerDashboard({ profile }) {
     </div>
   )
 }
+
