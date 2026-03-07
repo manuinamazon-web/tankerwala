@@ -195,9 +195,10 @@ export default function DriverDashboard({ profile, setProfile }) {
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bids' }, (payload) => {
         if (payload.new?.driver_id === profile.id) {
-          if (payload.new?.status === 'accepted') {
-            playSound(880, 0.4, 3)
-            showNotification('🎉 Your bid was accepted!')
+          if (payload.new?.status === 'accepted' && payload.old?.status !== 'accepted') {
+            playSound(880, 0.4, 4)
+            playRinging()
+            showNotification('🎉 Your bid was accepted! Go deliver!')
             setTab('delivery')
           }
           fetchData()
@@ -220,10 +221,33 @@ export default function DriverDashboard({ profile, setProfile }) {
     document.addEventListener('touchstart', resetInactivityTimer)
     document.addEventListener('click', resetInactivityTimer)
 
-    // ✅ Backup polling every 10 seconds for new requests
-    const pollInterval = setInterval(() => {
+    // ✅ Backup polling every 8 seconds for new requests + bid acceptance
+    let lastAcceptedBid = null
+
+    const pollInterval = setInterval(async () => {
+      // Check if any of driver's bids got accepted
+      const { data: acceptedBids } = await supabase
+        .from('bids')
+        .select('id, request_id, status')
+        .eq('driver_id', profile.id)
+        .eq('status', 'accepted')
+
+      if (acceptedBids && acceptedBids.length > 0) {
+        const latestAccepted = acceptedBids[0].id
+        if (lastAcceptedBid !== latestAccepted) {
+          if (lastAcceptedBid !== null) {
+            // New acceptance detected!
+            playSound(880, 0.4, 4)
+            playRinging()
+            showNotification('🎉 Your bid was accepted! Go deliver!')
+            setTab('delivery')
+          }
+          lastAcceptedBid = latestAccepted
+        }
+      }
+
       fetchData()
-    }, 10000)
+    }, 8000)
 
     return () => {
       clearInterval(locationInterval.current)
