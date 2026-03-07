@@ -86,7 +86,7 @@ export default function ViewBids({ profile }) {
 
     const { data: driver } = await supabase
       .from('profiles')
-      .select('wallet_balance, is_active')
+      .select('wallet_balance, is_active, name')
       .eq('id', bid.driver_id)
       .single()
 
@@ -98,6 +98,13 @@ export default function ViewBids({ profile }) {
 
     const { error } = await supabase.from('bids').update({ status: 'accepted' }).eq('id', bid.id)
     if (error) { alert(error.message); setAccepting(null); return }
+
+    // ✅ Save driver_id and driver_name to request for rating later
+    await supabase.from('requests').update({
+      driver_id: bid.driver_id,
+      driver_name: driver.name,
+      driver_phone: bid.profiles?.phone
+    }).eq('id', requestId)
 
     setTimeout(async () => {
       const { data: updatedReq } = await supabase.from('requests').select('*').eq('id', requestId).single()
