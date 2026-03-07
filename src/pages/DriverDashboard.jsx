@@ -837,7 +837,7 @@ export default function DriverDashboard({ profile, setProfile }) {
               <div style={{fontSize:'12px', opacity:0.8, marginTop:'2px'}}>🚗 {vehicleNumber.toUpperCase()}</div>
             )}
           </div>
-          <button onClick={() => setTab('profile')} style={{
+          <button onClick={() => switchTab('profile')} style={{
             background:'rgba(255,255,255,0.2)', border:'none', borderRadius:'8px',
             color:'white', fontSize:'12px', padding:'6px 10px', cursor:'pointer', fontWeight:600,
             flexShrink:0
