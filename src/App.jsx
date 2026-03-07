@@ -10,6 +10,7 @@ import AdminDashboard from './pages/AdminDashboard'
 import PostRequest from './pages/PostRequest'
 import ViewBids from './pages/ViewBids'
 import DriverOTP from './pages/DriverOTP'
+import DriverPin from './pages/DriverPin'
 
 export default function App() {
   const [user, setUser] = useState(null)
@@ -50,7 +51,7 @@ export default function App() {
   function getHome() {
     if (!user || !profile) return <Home />
     if (profile.role === 'admin') return <Navigate to="/admin" />
-    if (profile.role === 'driver') return <Navigate to="/driver" />
+    if (profile.role === 'driver') return <Navigate to="/driver-pin" />
     if (profile.role === 'customer') return <Navigate to="/customer" />
     return <Home />
   }
@@ -68,6 +69,7 @@ export default function App() {
         <Route path="/customer/bids/:requestId" element={user && profile?.role === 'customer' ? <ViewBids profile={profile} /> : <Navigate to="/" />} />
 
         {/* Driver Routes */}
+        <Route path="/driver-pin" element={user && profile?.role === 'driver' ? <DriverPin profile={profile} /> : <Navigate to="/" />} />
         <Route path="/driver" element={user && profile?.role === 'driver' ? <DriverDashboard profile={profile} setProfile={setProfile} /> : <Navigate to="/" />} />
         <Route path="/driver/otp/:requestId" element={user && profile?.role === 'driver' ? <DriverOTP profile={profile} /> : <Navigate to="/" />} />
 
@@ -77,3 +79,4 @@ export default function App() {
     </BrowserRouter>
   )
 }
+
