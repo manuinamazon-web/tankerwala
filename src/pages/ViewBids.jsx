@@ -67,7 +67,7 @@ export default function ViewBids({ profile }) {
   async function fetchData() {
     const [{ data: req }, { data: bidData }] = await Promise.all([
       supabase.from('requests').select('*').eq('id', requestId).single(),
-      supabase.from('bids').select('*, profiles(id, name, phone, area, tanker_type, driver_lat, driver_lng, rating, total_ratings, total_deliveries)')
+      supabase.from('bids').select('*, profiles(id, name, phone, area, tanker_type, driver_lat, driver_lng, rating, total_ratings, total_deliveries, vehicle_number)')
         .eq('request_id', requestId)
         .order('price', { ascending: true })
     ])
@@ -114,7 +114,9 @@ export default function ViewBids({ profile }) {
         setRequest(updatedReq)
       }
       setAccepting(null)
-    }, 1000)
+      // ✅ Redirect to customer dashboard to see delivery status
+      navigate('/customer')
+    }, 1500)
   }
 
   if (loading) return <div className="spinner" style={{marginTop:'40vh'}}></div>
@@ -156,6 +158,9 @@ export default function ViewBids({ profile }) {
             <div style={{fontSize:'15px', fontWeight:700, color:'#1a2a4a', marginBottom:'4px'}}>👤 {acceptedBid.profiles?.name}</div>
             <div style={{marginBottom:'6px'}}><StarRating rating={acceptedBid.profiles?.rating} /></div>
             <div style={{fontSize:'13px', color:'#5a6a85', marginBottom:'4px'}}>📍 {acceptedBid.profiles?.area || 'Bengaluru'}</div>
+            {acceptedBid.profiles?.vehicle_number && (
+              <div style={{fontSize:'13px', color:'#5a6a85', marginBottom:'4px'}}>🚗 {acceptedBid.profiles.vehicle_number}</div>
+            )}
             {acceptedBid.profiles?.total_deliveries > 0 && (
               <div style={{fontSize:'13px', color:'#5a6a85', marginBottom:'8px'}}>
                 ✅ {acceptedBid.profiles.total_deliveries} deliveries completed
@@ -252,6 +257,11 @@ export default function ViewBids({ profile }) {
                     <span style={{fontSize:'12px', color:'#5a6a85', marginLeft:'6px'}}>
                       ({bid.profiles.total_deliveries} deliveries)
                     </span>
+                  )}
+                  {bid.profiles?.vehicle_number && (
+                    <div style={{fontSize:'12px', color:'#5a6a85', marginTop:'2px'}}>
+                      🚗 {bid.profiles.vehicle_number}
+                    </div>
                   )}
                 </div>
                 {/* 📍 Area + Distance */}
