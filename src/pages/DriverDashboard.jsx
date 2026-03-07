@@ -151,6 +151,19 @@ export default function DriverDashboard({ profile, setProfile }) {
   const [vehicleNumber, setVehicleNumber] = useState(profile.vehicle_number || '')
   const [editingVehicle, setEditingVehicle] = useState(false)
   const [savingVehicle, setSavingVehicle] = useState(false)
+  const [profileForm, setProfileForm] = useState({
+    name: profile.name || '',
+    phone: profile.phone || '',
+    area: profile.area || '',
+    tanker_type: profile.tanker_type || 'water',
+  })
+  const [savingProfile, setSavingProfile] = useState(false)
+  const [changingPassword, setChangingPassword] = useState(false)
+  const [newPassword, setNewPassword] = useState('')
+  const [savingPassword, setSavingPassword] = useState(false)
+  const [pinForEdit, setPinForEdit] = useState('')
+  const [pinVerified, setPinVerified] = useState(false)
+  const [pinError, setPinError] = useState('')
   const [pushEnabled, setPushEnabled] = useState(false)
   const audioUnlocked = useRef(false)
   const inactivityTimer = useRef(null)
@@ -296,6 +309,31 @@ export default function DriverDashboard({ profile, setProfile }) {
     setUploadingPhoto(false)
   }
 
+  async function saveProfile() {
+    if (!profileForm.name.trim()) return alert('Name is required')
+    if (!profileForm.phone || profileForm.phone.length < 10) return alert('Valid phone required')
+    setSavingProfile(true)
+    await supabase.from('profiles').update({
+      name: profileForm.name.trim(),
+      phone: profileForm.phone.trim(),
+      area: profileForm.area.trim(),
+      tanker_type: profileForm.tanker_type,
+    }).eq('id', profile.id)
+    setSavingProfile(false)
+    showNotification('✅ Profile updated successfully!')
+  }
+
+  async function changePassword() {
+    if (newPassword.length < 6) return alert('Password must be at least 6 characters')
+    setSavingPassword(true)
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    setSavingPassword(false)
+    if (error) { alert('Error: ' + error.message); return }
+    setNewPassword('')
+    setChangingPassword(false)
+    showNotification('✅ Password changed successfully!')
+  }
+
   async function saveVehicleNumber() {
     if (!vehicleNumber.trim()) return
     setSavingVehicle(true)
@@ -305,6 +343,11 @@ export default function DriverDashboard({ profile, setProfile }) {
     setSavingVehicle(false)
     setEditingVehicle(false)
     showNotification('✅ Vehicle number saved!')
+  }
+
+  function switchTab(t) {
+    setTab(t)
+    if (t !== 'profile') { setPinVerified(false); setPinForEdit(''); setPinError('') }
   }
 
   function showNotification(msg) {
@@ -413,6 +456,8 @@ export default function DriverDashboard({ profile, setProfile }) {
       setWalletBalance(profileData.wallet_balance || 0)
       setIsOnline(profileData.is_online || false)
       if (profileData.rating) setDriverRating(profileData.rating)
+      if (profileData.photo_url) setPhotoUrl(profileData.photo_url)
+      if (profileData.vehicle_number) setVehicleNumber(profileData.vehicle_number.toUpperCase())
     }
     setLoading(false)
   }
@@ -771,7 +816,7 @@ export default function DriverDashboard({ profile, setProfile }) {
       <div className="card" style={{background:'linear-gradient(135deg, #1565C0, #1976D2)', color:'white', marginBottom:'16px'}}>
         {/* Photo + Name row */}
         <div style={{display:'flex', gap:'12px', alignItems:'center', marginBottom:'12px'}}>
-          <div style={{position:'relative'}}>
+          <div style={{position:'relative', flexShrink:0}}>
             {photoUrl ? (
               <img src={photoUrl} alt="Driver" style={{
                 width:'60px', height:'60px', borderRadius:'50%',
@@ -784,57 +829,21 @@ export default function DriverDashboard({ profile, setProfile }) {
                 alignItems:'center', justifyContent:'center', fontSize:'28px'
               }}>👤</div>
             )}
-            <label style={{
-              position:'absolute', bottom:0, right:'-4px',
-              background:'white', borderRadius:'50%', width:'22px', height:'22px',
-              display:'flex', alignItems:'center', justifyContent:'center',
-              cursor:'pointer', fontSize:'12px', boxShadow:'0 2px 6px rgba(0,0,0,0.3)'
-            }}>
-              {uploadingPhoto ? '⏳' : '📷'}
-              <input type="file" accept="image/*" capture="user" style={{display:'none'}}
-                onChange={e => uploadPhoto(e.target.files[0])} />
-            </label>
           </div>
-          <div>
+          <div style={{flex:1}}>
             <div style={{fontWeight:800, fontSize:'16px'}}>{profile.name}</div>
             <div style={{fontSize:'12px', opacity:0.8}}>{profile.tanker_type === 'water' ? '💧 Water' : '🚽 Sewage'} • {profile.area}</div>
-            {!photoUrl && <div style={{fontSize:'11px', opacity:0.7, marginTop:'2px'}}>📷 Tap camera to add photo</div>}
-            {/* Vehicle number */}
-            {!editingVehicle ? (
-              <div style={{display:'flex', alignItems:'center', gap:'6px', marginTop:'4px'}}>
-                <span style={{fontSize:'12px', opacity:0.85}}>
-                  🚗 {vehicleNumber || 'No vehicle number'}
-                </span>
-                <button onClick={() => setEditingVehicle(true)} style={{
-                  background:'rgba(255,255,255,0.2)', border:'none', borderRadius:'6px',
-                  color:'white', fontSize:'11px', padding:'2px 8px', cursor:'pointer', fontWeight:600
-                }}>✏️ Edit</button>
-              </div>
-            ) : (
-              <div style={{display:'flex', gap:'6px', marginTop:'4px'}}>
-                <input
-                  value={vehicleNumber}
-                  onChange={e => setVehicleNumber(e.target.value.toUpperCase())}
-                  placeholder="KA01AB1234"
-                  style={{
-                    flex:1, padding:'6px 10px', borderRadius:'8px', border:'none',
-                    fontSize:'13px', fontWeight:700, letterSpacing:'1px',
-                    textTransform:'uppercase', color:'#1a2a4a'
-                  }}
-                />
-                <button onClick={saveVehicleNumber} disabled={savingVehicle} style={{
-                  padding:'6px 12px', background:'#FF6F00', color:'white',
-                  border:'none', borderRadius:'8px', fontWeight:700, fontSize:'12px', cursor:'pointer'
-                }}>{savingVehicle ? '...' : '✅'}</button>
-                <button onClick={() => setEditingVehicle(false)} style={{
-                  padding:'6px 10px', background:'rgba(255,255,255,0.2)', color:'white',
-                  border:'none', borderRadius:'8px', fontWeight:700, fontSize:'12px', cursor:'pointer'
-                }}>✕</button>
-              </div>
+            {vehicleNumber && (
+              <div style={{fontSize:'12px', opacity:0.8, marginTop:'2px'}}>🚗 {vehicleNumber.toUpperCase()}</div>
             )}
           </div>
+          <button onClick={() => setTab('profile')} style={{
+            background:'rgba(255,255,255,0.2)', border:'none', borderRadius:'8px',
+            color:'white', fontSize:'12px', padding:'6px 10px', cursor:'pointer', fontWeight:600,
+            flexShrink:0
+          }}>✏️ Edit</button>
         </div>
-        <div style={{fontSize:'13px', opacity:0.85, marginBottom:'4px'}}>Wallet Balance</div>
+                <div style={{fontSize:'13px', opacity:0.85, marginBottom:'4px'}}>Wallet Balance</div>
         <div style={{fontFamily:"'Baloo 2',cursive", fontSize:'36px', fontWeight:800}}>₹{walletBalance}</div>
         <div style={{fontSize:'12px', opacity:0.75}}>₹10 deducted per accepted bid</div>
         {!profile.is_active && (
@@ -879,12 +888,13 @@ export default function DriverDashboard({ profile, setProfile }) {
           { key:'mybids', label:'⏳ My Bids', count: pendingBids.length, color:'#FF6F00' },
           { key:'delivery', label:'🚚 Delivery', count: activeBids.length, color:'#2E7D32' },
           { key:'history', label:'📋 History', count: historyBids.length, color:'#7B1FA2' },
+          { key:'profile', label:'👤 Profile', count: null, color:'#00796B' },
         ].map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)} style={{
+          <button key={t.key} onClick={() => switchTab(t.key)} style={{
             flex:1, padding:'8px 4px', borderRadius:'10px', fontWeight:700, fontSize:'11px',
             background: tab===t.key ? t.color : '#F0F4FF',
             color: tab===t.key ? 'white' : '#5a6a85', border:'none', cursor:'pointer'
-          }}>{t.label}<br/>({t.count})</button>
+          }}>{t.label}{t.count !== null ? <><br/>({t.count})</> : ''}</button>
         ))}
       </div>
 
@@ -982,6 +992,185 @@ export default function DriverDashboard({ profile, setProfile }) {
         <div className="empty-state"><div className="icon">🚚</div><p>No active deliveries.</p></div>
       )}
       {tab === 'delivery' && !loading && activeBids.map(bid => <BidCard key={bid.id} bid={bid} />)}
+
+      {/* Profile Tab */}
+      {tab === 'profile' && !pinVerified && (
+        <div className="card" style={{textAlign:'center'}}>
+          <div style={{fontSize:'32px', marginBottom:'12px'}}>🔐</div>
+          <div style={{fontWeight:800, fontSize:'16px', color:'#1a2a4a', marginBottom:'6px'}}>Enter PIN to Edit Profile</div>
+          <div style={{fontSize:'13px', color:'#5a6a85', marginBottom:'20px'}}>Your PIN is required before making any changes</div>
+          {pinError && <div className="alert alert-error" style={{marginBottom:'12px'}}>{pinError}</div>}
+          <input
+            type="password"
+            inputMode="numeric"
+            maxLength={4}
+            placeholder="Enter 4-digit PIN"
+            value={pinForEdit}
+            onChange={e => setPinForEdit(e.target.value.replace(/\D/g,'').slice(0,4))}
+            style={{textAlign:'center', fontSize:'24px', letterSpacing:'8px', fontWeight:800,
+              width:'100%', padding:'14px', borderRadius:'12px', border:'2px solid #C5D5F0',
+              marginBottom:'12px'}}
+          />
+          <button onClick={() => {
+            if (pinForEdit === profile.driver_pin) {
+              setPinVerified(true); setPinError(''); setPinForEdit('')
+            } else {
+              setPinError('Wrong PIN! Try again.'); setPinForEdit('')
+            }
+          }} style={{
+            width:'100%', padding:'14px', borderRadius:'12px',
+            background:'#1565C0', color:'white', border:'none',
+            fontWeight:700, fontSize:'16px', cursor:'pointer', marginBottom:'12px'
+          }}>✅ Verify PIN</button>
+          <button onClick={() => { setTab('open'); setPinForEdit(''); setPinError('') }} style={{
+            background:'none', border:'none', color:'#5a6a85', fontSize:'13px', cursor:'pointer'
+          }}>Cancel</button>
+        </div>
+      )}
+
+      {tab === 'profile' && pinVerified && (
+        <div className="card">
+          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'16px'}}>
+            <div style={{fontWeight:800, fontSize:'16px', color:'#1a2a4a'}}>👤 Edit Profile</div>
+            <button onClick={() => { setPinVerified(false); setTab('open') }} style={{
+              background:'#F0F4FF', border:'none', borderRadius:'8px', padding:'6px 12px',
+              color:'#5a6a85', fontSize:'12px', cursor:'pointer', fontWeight:600
+            }}>✕ Done</button>
+          </div>
+
+          {/* Photo */}
+          <div style={{textAlign:'center', marginBottom:'20px'}}>
+            {photoUrl ? (
+              <img src={photoUrl} alt="Driver" style={{
+                width:'90px', height:'90px', borderRadius:'50%',
+                objectFit:'cover', border:'3px solid #E3F2FD', marginBottom:'8px', display:'block', margin:'0 auto 8px'
+              }} />
+            ) : (
+              <div style={{
+                width:'90px', height:'90px', borderRadius:'50%', background:'#E3F2FD',
+                display:'flex', alignItems:'center', justifyContent:'center',
+                fontSize:'40px', margin:'0 auto 8px'
+              }}>👤</div>
+            )}
+            <label style={{
+              display:'inline-block', padding:'8px 16px', borderRadius:'8px',
+              background:'#E3F2FD', color:'#1565C0', fontWeight:600, fontSize:'13px', cursor:'pointer'
+            }}>
+              {uploadingPhoto ? '⏳ Uploading...' : '📷 Change Photo'}
+              <input type="file" accept="image/*" capture="user" style={{display:'none'}}
+                onChange={e => uploadPhoto(e.target.files[0])} />
+            </label>
+          </div>
+
+          {/* Name */}
+          <div className="form-group">
+            <label style={{fontWeight:600, fontSize:'13px', color:'#1a2a4a'}}>👤 Full Name</label>
+            <input
+              value={profileForm.name}
+              onChange={e => setProfileForm(f => ({...f, name: e.target.value}))}
+              placeholder="Your full name"
+            />
+          </div>
+
+          {/* Phone */}
+          <div className="form-group">
+            <label style={{fontWeight:600, fontSize:'13px', color:'#1a2a4a'}}>📱 Phone Number</label>
+            <input
+              type="tel"
+              value={profileForm.phone}
+              onChange={e => setProfileForm(f => ({...f, phone: e.target.value.replace(/\D/g,'').slice(0,10)}))}
+              placeholder="10-digit phone"
+              maxLength={10}
+            />
+          </div>
+
+          {/* Vehicle Number */}
+          <div className="form-group">
+            <label style={{fontWeight:600, fontSize:'13px', color:'#1a2a4a'}}>🚗 Vehicle Number</label>
+            <input
+              value={vehicleNumber.toUpperCase()}
+              onChange={e => setVehicleNumber(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+              placeholder="KA01AB1234"
+              style={{textTransform:'uppercase', letterSpacing:'2px', fontWeight:700}}
+            />
+          </div>
+
+          {/* Base Area */}
+          <div className="form-group">
+            <label style={{fontWeight:600, fontSize:'13px', color:'#1a2a4a'}}>📍 Base Area</label>
+            <input
+              value={profileForm.area}
+              onChange={e => setProfileForm(f => ({...f, area: e.target.value}))}
+              placeholder="e.g. Horamavu, Whitefield..."
+            />
+          </div>
+
+          {/* Tanker Type */}
+          <div className="form-group">
+            <label style={{fontWeight:600, fontSize:'13px', color:'#1a2a4a'}}>🚛 Tanker Type</label>
+            <div style={{display:'flex', gap:'8px'}}>
+              {['water','sewage'].map(t => (
+                <button key={t} type="button"
+                  onClick={() => setProfileForm(f => ({...f, tanker_type: t}))}
+                  style={{
+                    flex:1, padding:'12px', borderRadius:'10px', fontSize:'14px', fontWeight:600,
+                    background: profileForm.tanker_type===t ? (t==='water' ? '#1565C0' : '#2E7D32') : '#F0F4FF',
+                    color: profileForm.tanker_type===t ? 'white' : '#5a6a85', border:'none', cursor:'pointer'
+                  }}>
+                  {t === 'water' ? '💧 Water' : '🚽 Sewage'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Save Profile Button */}
+          <button
+            onClick={() => { saveProfile(); saveVehicleNumber() }}
+            disabled={savingProfile}
+            style={{
+              width:'100%', padding:'14px', borderRadius:'12px',
+              background:'#1565C0', color:'white', border:'none',
+              fontWeight:700, fontSize:'16px', cursor:'pointer', marginBottom:'16px'
+            }}
+          >
+            {savingProfile ? '⏳ Saving...' : '✅ Save Profile'}
+          </button>
+
+          {/* Change Password */}
+          <div style={{borderTop:'1px solid #E8EEF8', paddingTop:'16px'}}>
+            <div style={{fontWeight:700, fontSize:'14px', color:'#1a2a4a', marginBottom:'10px'}}>🔑 Change Password</div>
+            {!changingPassword ? (
+              <button onClick={() => setChangingPassword(true)} style={{
+                width:'100%', padding:'12px', borderRadius:'10px',
+                background:'#FFF3E0', color:'#E65100', border:'1.5px solid #FFCC80',
+                fontWeight:600, fontSize:'14px', cursor:'pointer'
+              }}>🔑 Change Password</button>
+            ) : (
+              <div>
+                <input
+                  type="password"
+                  placeholder="New password (min 6 chars)"
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  style={{marginBottom:'8px'}}
+                />
+                <div style={{display:'flex', gap:'8px'}}>
+                  <button onClick={changePassword} disabled={savingPassword} style={{
+                    flex:1, padding:'12px', borderRadius:'10px',
+                    background:'#1565C0', color:'white', border:'none',
+                    fontWeight:700, fontSize:'14px', cursor:'pointer'
+                  }}>{savingPassword ? '⏳...' : '✅ Save'}</button>
+                  <button onClick={() => { setChangingPassword(false); setNewPassword('') }} style={{
+                    flex:1, padding:'12px', borderRadius:'10px',
+                    background:'#F0F4FF', color:'#5a6a85', border:'none',
+                    fontWeight:600, fontSize:'14px', cursor:'pointer'
+                  }}>Cancel</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {tab === 'history' && !loading && (
         <>
