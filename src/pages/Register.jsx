@@ -6,7 +6,7 @@ import { WaterTankerIcon, SewageTankerIcon } from '../components/TankerIcon'
 export default function Register() {
   const [form, setForm] = useState({
     name: '', phone: '', email: '', password: '', role: 'customer',
-    tanker_type: 'water', area: '', service_radius: 10
+    tanker_type: 'water', area: '', service_radius: 10, vehicle_number: ''
   })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -24,6 +24,7 @@ export default function Register() {
     if (!form.email.trim()) { setError('Please enter your email address'); setLoading(false); return }
     if (form.password.length < 6) { setError('Password must be at least 6 characters'); setLoading(false); return }
     if (form.role === 'driver' && !form.area.trim()) { setError('Please enter your base area'); setLoading(false); return }
+    if (form.role === 'driver' && !form.vehicle_number.trim()) { setError('Please enter your vehicle number'); setLoading(false); return }
 
     // Check if phone already registered
     const { data: existingPhone } = await supabase
@@ -62,6 +63,7 @@ export default function Register() {
       driver_lat: null,
       driver_lng: null,
       service_radius: form.role === 'driver' ? form.service_radius : null,
+      vehicle_number: form.role === 'driver' ? form.vehicle_number.toUpperCase() : null,
       wallet_balance: form.role === 'driver' ? 0 : null,
       is_active: form.role === 'driver' ? false : true,
     })
@@ -162,6 +164,20 @@ export default function Register() {
               </div>
               <div style={{ fontSize: '12px', color: '#5a6a85', marginTop: '6px' }}>
                 You will receive requests within {form.service_radius}km of your live location
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label style={{ fontWeight: 600, fontSize: '14px', color: '#1a2a4a' }}>🚗 Vehicle Number</label>
+              <input
+                placeholder="e.g. KA01AB1234"
+                value={form.vehicle_number}
+                onChange={e => update('vehicle_number', e.target.value.toUpperCase())}
+                style={{textTransform:'uppercase', fontWeight:700, letterSpacing:'2px'}}
+                required
+              />
+              <div style={{ fontSize: '12px', color: '#5a6a85', marginTop: '4px' }}>
+                This will be shown to customers for verification
               </div>
             </div>
 
