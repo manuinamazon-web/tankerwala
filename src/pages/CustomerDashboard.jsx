@@ -64,9 +64,7 @@ export default function CustomerDashboard({ profile }) {
   const [ratingModal, setRatingModal] = useState(null) // { requestId, driverId, driverName }
   const [ratingValue, setRatingValue] = useState(0)
   const [ratingSubmitting, setRatingSubmitting] = useState(false)
-  const [ratedRequests, setRatedRequests] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('ratedRequests') || '[]') } catch { return [] }
-  })
+  const [ratedRequests, setRatedRequests] = useState([])
   const audioUnlocked = useRef(false)
   const navigate = useNavigate()
 
@@ -125,8 +123,8 @@ export default function CustomerDashboard({ profile }) {
             showNotification('🎉 Delivery completed! Please rate your driver.')
             // Show rating modal after short delay
             setTimeout(() => {
-              if (payload.new?.driver_id && payload.new?.driver_name) {
-                showRatingModal(payload.new.id, payload.new.driver_id, payload.new.driver_name)
+              if (payload.new?.driver_id && !payload.new?.is_rated) {
+                showRatingModal(payload.new.id, payload.new.driver_id, payload.new.driver_name || 'your driver', false)
               }
             }, 1500)
           }
@@ -153,8 +151,8 @@ export default function CustomerDashboard({ profile }) {
     setTimeout(() => setNotification(null), 6000)
   }
 
-  function showRatingModal(requestId, driverId, driverName) {
-    if (ratedRequests.includes(requestId)) return
+  function showRatingModal(requestId, driverId, driverName, isAlreadyRated) {
+    if (isAlreadyRated || ratedRequests.includes(requestId)) return
     setRatingValue(0)
     setRatingModal({ requestId, driverId, driverName })
   }
@@ -189,10 +187,9 @@ export default function CustomerDashboard({ profile }) {
       customer_rating: ratingValue
     }).eq('id', ratingModal.requestId)
 
-    // Save locally so modal doesn't show again
+    // Save in state so modal doesn't show again this session
     const updated = [...ratedRequests, ratingModal.requestId]
     setRatedRequests(updated)
-    try { localStorage.setItem('ratedRequests', JSON.stringify(updated)) } catch(e) {}
 
     setRatingSubmitting(false)
     setRatingModal(null)
@@ -296,7 +293,7 @@ export default function CustomerDashboard({ profile }) {
 
   function RequestCard({ req }) {
     const bidCount = bidCounts[req.id] || 0
-    const isRated = ratedRequests.includes(req.id) || req.is_rated
+    const isRated = req.is_rated === true || ratedRequests.includes(req.id)
     return (
       <div className="card" style={{marginBottom:'12px'}}>
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'8px'}}>
@@ -429,7 +426,7 @@ export default function CustomerDashboard({ profile }) {
             )}
             {!isRated && req.driver_id ? (
               <button
-                onClick={() => showRatingModal(req.id, req.driver_id, req.driver_name || req.driver_phone || 'your driver')}
+                onClick={() => showRatingModal(req.id, req.driver_id, req.driver_name || req.driver_phone || 'your driver', req.is_rated)}
                 style={{
                   width:'100%', padding:'10px', borderRadius:'10px',
                   background:'#FFA726', color:'white', border:'none',
