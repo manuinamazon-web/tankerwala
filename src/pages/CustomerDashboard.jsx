@@ -350,6 +350,22 @@ export default function CustomerDashboard({ profile }) {
                 🔒 OTP will be shown when driver arrives
               </div>
             )}
+            {/* 🗺️ Live location link when driver is on the way */}
+            {req.delivery_status === 'on_the_way' && req.driver_lat && req.driver_lng && (
+              <a
+                href={`https://maps.google.com/?q=${req.driver_lat},${req.driver_lng}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display:'block', marginTop:'8px', background:'#E8F5E9',
+                  color:'#2E7D32', padding:'10px', borderRadius:'10px',
+                  textAlign:'center', fontWeight:700, fontSize:'14px',
+                  textDecoration:'none'
+                }}
+              >
+                🗺️ View Driver Live Location
+              </a>
+            )}
           </div>
         )}
 
@@ -362,7 +378,7 @@ export default function CustomerDashboard({ profile }) {
             )}
             {!isRated && req.driver_id ? (
               <button
-                onClick={() => showRatingModal(req.id, req.driver_id, req.driver_name)}
+                onClick={() => showRatingModal(req.id, req.driver_id, req.driver_name || req.driver_phone || 'your driver')}
                 style={{
                   width:'100%', padding:'10px', borderRadius:'10px',
                   background:'#FFA726', color:'white', border:'none',
@@ -373,7 +389,7 @@ export default function CustomerDashboard({ profile }) {
               </button>
             ) : isRated ? (
               <div style={{textAlign:'center', fontSize:'13px', color:'#2E7D32', fontWeight:600}}>
-                ⭐ You rated this delivery — Thank you!
+                {'⭐'.repeat(req.customer_rating || 5)} Rated {req.customer_rating || 5}/5 — Thank you!
               </div>
             ) : null}
           </div>
@@ -532,4 +548,3 @@ export default function CustomerDashboard({ profile }) {
     </div>
   )
 }
-
