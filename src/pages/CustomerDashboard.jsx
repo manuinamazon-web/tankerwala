@@ -361,8 +361,13 @@ export default function CustomerDashboard({ profile }) {
             {req.driver_phone && (
               <a href={`tel:${req.driver_phone}`} style={{
                 fontSize:'14px', color:'#1565C0', fontWeight:700,
-                textDecoration:'none', display:'block', marginBottom:'8px'
+                textDecoration:'none', display:'block', marginBottom:'4px'
               }}>📞 Call Driver: {req.driver_phone}</a>
+            )}
+            {req.vehicle_number && (
+              <div style={{fontSize:'13px', color:'#5a6a85', marginBottom:'8px'}}>
+                🚗 Vehicle: {req.vehicle_number}
+              </div>
             )}
 
             {req.otp && (req.delivery_status === 'arrived' || req.delivery_status === 'completed') && (
@@ -592,4 +597,3 @@ export default function CustomerDashboard({ profile }) {
     </div>
   )
 }
-
