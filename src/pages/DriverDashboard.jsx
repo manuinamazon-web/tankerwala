@@ -355,7 +355,8 @@ export default function DriverDashboard({ profile, setProfile }) {
     if (t === 'profile') {
       setTimeout(() => {
         document.getElementById('profile-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }, 100)
+        document.getElementById('pin-edit-input')?.focus()
+      }, 300)
     }
   }
 
@@ -1018,17 +1019,44 @@ export default function DriverDashboard({ profile, setProfile }) {
           <div style={{fontWeight:800, fontSize:'16px', color:'#1a2a4a', marginBottom:'6px'}}>Enter PIN to Edit Profile</div>
           <div style={{fontSize:'13px', color:'#5a6a85', marginBottom:'20px'}}>Your PIN is required before making any changes</div>
           {pinError && <div className="alert alert-error" style={{marginBottom:'12px'}}>{pinError}</div>}
+          {/* PIN dots */}
+          <div style={{display:'flex', gap:'12px', justifyContent:'center', marginBottom:'20px'}}>
+            {[0,1,2,3].map(idx => (
+              <div key={idx} style={{
+                width:'56px', height:'64px', borderRadius:'12px',
+                border: pinForEdit.length > idx ? '2px solid #1565C0' : '2px solid #C5D5F0',
+                background: pinForEdit.length > idx ? '#E3F2FD' : 'white',
+                display:'flex', alignItems:'center', justifyContent:'center',
+                boxShadow:'0 2px 8px rgba(0,0,0,0.08)'
+              }}>
+                {pinForEdit.length > idx && (
+                  <div style={{width:'14px', height:'14px', borderRadius:'50%', background:'#1565C0'}} />
+                )}
+              </div>
+            ))}
+          </div>
+          {/* Hidden input trick for mobile keyboard */}
           <input
             type="tel"
             inputMode="numeric"
             maxLength={4}
-            placeholder="● ● ● ●"
             value={pinForEdit}
             onChange={e => setPinForEdit(e.target.value.replace(/[^0-9]/g,'').slice(0,4))}
-            style={{textAlign:'center', fontSize:'28px', letterSpacing:'12px', fontWeight:800,
-              width:'100%', padding:'16px', borderRadius:'12px', border:'2px solid #C5D5F0',
-              marginBottom:'12px', boxSizing:'border-box'}}
+            style={{
+              position:'absolute', opacity:0, width:'1px', height:'1px', pointerEvents:'none'
+            }}
+            id="pin-edit-input"
           />
+          <div
+            onClick={() => document.getElementById('pin-edit-input')?.focus()}
+            style={{
+              textAlign:'center', fontSize:'13px', color:'#5a6a85',
+              marginBottom:'16px', cursor:'pointer', padding:'8px',
+              border:'1px dashed #C5D5F0', borderRadius:'8px'
+            }}
+          >
+            👆 Tap here then type your PIN
+          </div>
           <button onClick={() => {
             if (pinForEdit === profile.driver_pin) {
               setPinVerified(true); setPinError(''); setPinForEdit('')
