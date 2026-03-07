@@ -231,6 +231,26 @@ export default function CustomerDashboard({ profile }) {
     fetchRequests()
   }
 
+  async function cancelAcceptedRequest(requestId) {
+    if (!window.confirm('Cancel this request? The driver will be notified.')) return
+    // Reset request back to pending so other drivers can bid
+    await supabase.from('requests').update({
+      status: 'cancelled',
+      driver_id: null,
+      driver_name: null,
+      driver_phone: null,
+      otp: null,
+      otp_verified: false,
+      delivery_status: 'pending'
+    }).eq('id', requestId)
+    // Withdraw the accepted bid
+    await supabase.from('bids').update({ status: 'withdrawn' })
+      .eq('request_id', requestId)
+      .eq('status', 'accepted')
+    fetchRequests()
+    showNotification('❌ Request cancelled.')
+  }
+
   async function logout() {
     await supabase.auth.signOut()
     navigate('/')
@@ -330,15 +350,23 @@ export default function CustomerDashboard({ profile }) {
 
         {req.status === 'accepted' && (
           <div style={{background:'#E8F5E9', borderRadius:'10px', padding:'12px', marginBottom:'12px'}}>
-            <div style={{fontWeight:700, color:'#2E7D32', marginBottom:'4px'}}>✅ Bid accepted!</div>
+            <div style={{fontWeight:700, color:'#2E7D32', marginBottom:'8px'}}>✅ Bid accepted!</div>
+
+            {/* Driver details */}
+            {req.driver_name && (
+              <div style={{fontSize:'14px', fontWeight:700, color:'#1a2a4a', marginBottom:'4px'}}>
+                👤 {req.driver_name}
+              </div>
+            )}
             {req.driver_phone && (
               <a href={`tel:${req.driver_phone}`} style={{
                 fontSize:'14px', color:'#1565C0', fontWeight:700,
                 textDecoration:'none', display:'block', marginBottom:'8px'
               }}>📞 Call Driver: {req.driver_phone}</a>
             )}
+
             {req.otp && (req.delivery_status === 'arrived' || req.delivery_status === 'completed') && (
-              <div style={{background:'#1565C0', borderRadius:'10px', padding:'12px', textAlign:'center'}}>
+              <div style={{background:'#1565C0', borderRadius:'10px', padding:'12px', textAlign:'center', marginBottom:'8px'}}>
                 <div style={{fontSize:'12px', color:'rgba(255,255,255,0.8)', marginBottom:'4px'}}>Share OTP with driver</div>
                 <div style={{fontSize:'36px', fontWeight:900, color:'white', letterSpacing:'8px', fontFamily:"'Baloo 2',cursive"}}>
                   {req.otp}
@@ -346,10 +374,11 @@ export default function CustomerDashboard({ profile }) {
               </div>
             )}
             {req.otp && req.delivery_status !== 'arrived' && req.delivery_status !== 'completed' && (
-              <div style={{background:'#F0F4FF', borderRadius:'10px', padding:'10px', textAlign:'center', fontSize:'13px', color:'#5a6a85'}}>
+              <div style={{background:'#F0F4FF', borderRadius:'10px', padding:'10px', textAlign:'center', fontSize:'13px', color:'#5a6a85', marginBottom:'8px'}}>
                 🔒 OTP will be shown when driver arrives
               </div>
             )}
+
             {/* 🗺️ Live location link when driver is on the way */}
             {req.delivery_status === 'on_the_way' && req.driver_lat && req.driver_lng && (
               <a
@@ -357,7 +386,7 @@ export default function CustomerDashboard({ profile }) {
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{
-                  display:'block', marginTop:'8px', background:'#E8F5E9',
+                  display:'block', marginBottom:'8px', background:'#E8F5E9',
                   color:'#2E7D32', padding:'10px', borderRadius:'10px',
                   textAlign:'center', fontWeight:700, fontSize:'14px',
                   textDecoration:'none'
@@ -365,6 +394,21 @@ export default function CustomerDashboard({ profile }) {
               >
                 🗺️ View Driver Live Location
               </a>
+            )}
+
+            {/* ❌ Cancel option — only if driver hasn't started yet */}
+            {(req.delivery_status === 'pending' || !req.delivery_status) && (
+              <button
+                onClick={() => cancelAcceptedRequest(req.id)}
+                style={{
+                  width:'100%', padding:'10px', borderRadius:'10px',
+                  background:'#FFEBEE', color:'#C62828',
+                  border:'1.5px solid #FFCDD2', fontWeight:600,
+                  fontSize:'13px', cursor:'pointer', marginTop:'4px'
+                }}
+              >
+                ❌ Cancel Request (Driver hasn't started yet)
+              </button>
             )}
           </div>
         )}
@@ -548,3 +592,4 @@ export default function CustomerDashboard({ profile }) {
     </div>
   )
 }
+
