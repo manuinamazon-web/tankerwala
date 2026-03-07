@@ -155,7 +155,7 @@ export default function DriverDashboard({ profile, setProfile }) {
     name: profile.name || '',
     phone: profile.phone || '',
     area: profile.area || '',
-    tanker_type: profile.tanker_type || 'water',
+    tanker_types: profile.tanker_types || [profile.tanker_type || 'water'],
   })
   const [savingProfile, setSavingProfile] = useState(false)
   const [changingPassword, setChangingPassword] = useState(false)
@@ -170,9 +170,11 @@ export default function DriverDashboard({ profile, setProfile }) {
   const locationInterval = useRef(null)
   const navigate = useNavigate()
 
-  const isWater = profile.tanker_type === 'water'
-  const tankerLabel = isWater ? 'Water Tanker Driver' : 'Sewage Tanker Driver'
-  const tankerColor = isWater ? '#1565C0' : '#2E7D32'
+  const myTypes = profile.tanker_types || [profile.tanker_type || 'water']
+  const isWater = myTypes.includes('water')
+  const isBoth = myTypes.length === 2
+  const tankerLabel = isBoth ? 'Water & Sewage Driver' : isWater ? 'Water Tanker Driver' : 'Sewage Tanker Driver'
+  const tankerColor = isBoth ? '#1565C0' : isWater ? '#1565C0' : '#2E7D32'
 
   useEffect(() => {
     function unlock() {
@@ -206,7 +208,8 @@ export default function DriverDashboard({ profile, setProfile }) {
     // ✅ Single reliable channel for driver
     const channel = supabase.channel('driver-' + profile.id)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'requests',  }, (payload) => {
-        if (payload.new?.tanker_type === profile.tanker_type) {
+        const myTypes = profile.tanker_types || [profile.tanker_type || 'water']
+        if (myTypes.includes(payload.new?.tanker_type)) {
           playRinging()
           showNotification('🔔 New request arrived!')
           fetchData()
@@ -317,7 +320,8 @@ export default function DriverDashboard({ profile, setProfile }) {
       name: profileForm.name.trim(),
       phone: profileForm.phone.trim(),
       area: profileForm.area.trim(),
-      tanker_type: profileForm.tanker_type,
+      tanker_type: profileForm.tanker_types[0],
+      tanker_types: profileForm.tanker_types,
     }).eq('id', profile.id)
     setSavingProfile(false)
     showNotification('✅ Profile updated successfully!')
@@ -436,7 +440,7 @@ export default function DriverDashboard({ profile, setProfile }) {
     const [{ data: reqs }, { data: bids }, { data: profileData }] = await Promise.all([
       supabase.from('requests').select('*')
         .eq('status', 'pending')
-        .eq('tanker_type', profile.tanker_type)
+        .in('tanker_type', profile.tanker_types || [profile.tanker_type || 'water'])
         .order('created_at', { ascending: false }),
       supabase.from('bids').select('*, requests(*)')
         .eq('driver_id', profile.id)
@@ -746,7 +750,9 @@ export default function DriverDashboard({ profile, setProfile }) {
     <div className="page">
       <div className="topbar">
         <div style={{display:'flex', alignItems:'center', gap:'10px'}}>
-          <TankerIcon type={profile.tanker_type} size={48} />
+          {(profile.tanker_types || [profile.tanker_type]).map(t => (
+            <TankerIcon key={t} type={t} size={40} />
+          ))}
           <div>
             <div className="topbar-logo" style={{fontSize:'18px'}}>Tanker<span>Wala</span></div>
             <div style={{fontSize:'12px', color: tankerColor, fontWeight:600}}>{tankerLabel}</div>
@@ -837,7 +843,14 @@ export default function DriverDashboard({ profile, setProfile }) {
           </div>
           <div style={{flex:1}}>
             <div style={{fontWeight:800, fontSize:'16px'}}>{profile.name}</div>
-            <div style={{fontSize:'12px', opacity:0.8}}>{profile.tanker_type === 'water' ? '💧 Water' : '🚽 Sewage'} • {profile.area}</div>
+            <div style={{fontSize:'12px', opacity:0.8}}>
+              {(profile.tanker_types || [profile.tanker_type]).includes('water') ? '💧' : ''}
+              {(profile.tanker_types || [profile.tanker_type]).includes('sewage') ? '🚽' : ''}
+              {' '}
+              {(profile.tanker_types || [profile.tanker_type]).length === 2 ? 'Water & Sewage' :
+               (profile.tanker_types || [profile.tanker_type])[0] === 'water' ? 'Water' : 'Sewage'}
+              {' • '}{profile.area}
+            </div>
             {vehicleNumber && (
               <div style={{fontSize:'12px', opacity:0.8, marginTop:'2px'}}>🚗 {vehicleNumber.toUpperCase()}</div>
             )}
@@ -1057,14 +1070,31 @@ export default function DriverDashboard({ profile, setProfile }) {
                 fontSize:'40px', margin:'0 auto 8px'
               }}>👤</div>
             )}
-            <label style={{
-              display:'inline-block', padding:'8px 16px', borderRadius:'8px',
-              background:'#E3F2FD', color:'#1565C0', fontWeight:600, fontSize:'13px', cursor:'pointer'
-            }}>
-              {uploadingPhoto ? '⏳ Uploading...' : '📷 Change Photo'}
-              <input type="file" accept="image/*" capture="user" style={{display:'none'}}
-                onChange={e => uploadPhoto(e.target.files[0])} />
-            </label>
+            {uploadingPhoto ? (
+              <div style={{padding:'8px 16px', background:'#E3F2FD', borderRadius:'8px',
+                color:'#1565C0', fontWeight:600, fontSize:'13px'}}>⏳ Uploading...</div>
+            ) : (
+              <div style={{display:'flex', gap:'8px', justifyContent:'center'}}>
+                <label style={{
+                  padding:'8px 16px', borderRadius:'8px', cursor:'pointer',
+                  background:'#E3F2FD', color:'#1565C0', fontWeight:600, fontSize:'13px',
+                  display:'flex', alignItems:'center', gap:'4px'
+                }}>
+                  📷 Camera
+                  <input type="file" accept="image/*" capture="environment" style={{display:'none'}}
+                    onChange={e => uploadPhoto(e.target.files[0])} />
+                </label>
+                <label style={{
+                  padding:'8px 16px', borderRadius:'8px', cursor:'pointer',
+                  background:'#F0F4FF', color:'#1565C0', fontWeight:600, fontSize:'13px',
+                  display:'flex', alignItems:'center', gap:'4px'
+                }}>
+                  🖼️ Gallery
+                  <input type="file" accept="image/*" style={{display:'none'}}
+                    onChange={e => uploadPhoto(e.target.files[0])} />
+                </label>
+              </div>
+            )}
           </div>
 
           {/* Name */}
@@ -1112,19 +1142,37 @@ export default function DriverDashboard({ profile, setProfile }) {
 
           {/* Tanker Type */}
           <div className="form-group">
-            <label style={{fontWeight:600, fontSize:'13px', color:'#1a2a4a'}}>🚛 Tanker Type</label>
+            <label style={{fontWeight:600, fontSize:'13px', color:'#1a2a4a'}}>🚛 Tanker Type(s)</label>
+            <div style={{fontSize:'12px', color:'#5a6a85', marginBottom:'6px'}}>Select one or both</div>
             <div style={{display:'flex', gap:'8px'}}>
-              {['water','sewage'].map(t => (
-                <button key={t} type="button"
-                  onClick={() => setProfileForm(f => ({...f, tanker_type: t}))}
-                  style={{
-                    flex:1, padding:'12px', borderRadius:'10px', fontSize:'14px', fontWeight:600,
-                    background: profileForm.tanker_type===t ? (t==='water' ? '#1565C0' : '#2E7D32') : '#F0F4FF',
-                    color: profileForm.tanker_type===t ? 'white' : '#5a6a85', border:'none', cursor:'pointer'
-                  }}>
-                  {t === 'water' ? '💧 Water' : '🚽 Sewage'}
-                </button>
-              ))}
+              {[{key:'water',label:'💧 Water',color:'#1565C0'},{key:'sewage',label:'🚽 Sewage',color:'#2E7D32'}].map(t => {
+                const selected = (profileForm.tanker_types || []).includes(t.key)
+                return (
+                  <button key={t.key} type="button"
+                    onClick={() => {
+                      const cur = profileForm.tanker_types || []
+                      if (selected) {
+                        if (cur.length === 1) return
+                        setProfileForm(f => ({...f, tanker_types: cur.filter(x => x !== t.key)}))
+                      } else {
+                        setProfileForm(f => ({...f, tanker_types: [...cur, t.key]}))
+                      }
+                    }}
+                    style={{
+                      flex:1, padding:'12px', borderRadius:'10px', fontSize:'14px', fontWeight:600,
+                      background: selected ? t.color : '#F0F4FF',
+                      color: selected ? 'white' : '#5a6a85', border:'none', cursor:'pointer',
+                      position:'relative'
+                    }}>
+                    {t.label}
+                    {selected && <span style={{
+                      position:'absolute', top:'4px', right:'4px', fontSize:'10px',
+                      background:'rgba(255,255,255,0.3)', borderRadius:'50%',
+                      width:'16px', height:'16px', display:'flex', alignItems:'center', justifyContent:'center'
+                    }}>✓</span>}
+                  </button>
+                )
+              })}
             </div>
           </div>
 
