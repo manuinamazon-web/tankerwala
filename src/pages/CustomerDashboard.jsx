@@ -192,11 +192,13 @@ export default function CustomerDashboard({ profile }) {
     // Save locally so modal doesn't show again
     const updated = [...ratedRequests, ratingModal.requestId]
     setRatedRequests(updated)
-    localStorage.setItem('ratedRequests', JSON.stringify(updated))
+    try { localStorage.setItem('ratedRequests', JSON.stringify(updated)) } catch(e) {}
 
     setRatingSubmitting(false)
     setRatingModal(null)
+    setRatingValue(0)
     showNotification('⭐ Thank you for rating!')
+    fetchRequests() // refresh to show rated status
   }
 
   async function fetchRequests() {
