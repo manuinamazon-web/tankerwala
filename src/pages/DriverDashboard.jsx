@@ -348,6 +348,11 @@ export default function DriverDashboard({ profile, setProfile }) {
   function switchTab(t) {
     setTab(t)
     if (t !== 'profile') { setPinVerified(false); setPinForEdit(''); setPinError('') }
+    if (t === 'profile') {
+      setTimeout(() => {
+        document.getElementById('profile-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 100)
+    }
   }
 
   function showNotification(msg) {
@@ -995,21 +1000,21 @@ export default function DriverDashboard({ profile, setProfile }) {
 
       {/* Profile Tab */}
       {tab === 'profile' && !pinVerified && (
-        <div className="card" style={{textAlign:'center'}}>
+        <div id="profile-section" className="card" style={{textAlign:'center'}}>
           <div style={{fontSize:'32px', marginBottom:'12px'}}>🔐</div>
           <div style={{fontWeight:800, fontSize:'16px', color:'#1a2a4a', marginBottom:'6px'}}>Enter PIN to Edit Profile</div>
           <div style={{fontSize:'13px', color:'#5a6a85', marginBottom:'20px'}}>Your PIN is required before making any changes</div>
           {pinError && <div className="alert alert-error" style={{marginBottom:'12px'}}>{pinError}</div>}
           <input
-            type="password"
+            type="tel"
             inputMode="numeric"
             maxLength={4}
-            placeholder="Enter 4-digit PIN"
+            placeholder="● ● ● ●"
             value={pinForEdit}
-            onChange={e => setPinForEdit(e.target.value.replace(/\D/g,'').slice(0,4))}
-            style={{textAlign:'center', fontSize:'24px', letterSpacing:'8px', fontWeight:800,
-              width:'100%', padding:'14px', borderRadius:'12px', border:'2px solid #C5D5F0',
-              marginBottom:'12px'}}
+            onChange={e => setPinForEdit(e.target.value.replace(/[^0-9]/g,'').slice(0,4))}
+            style={{textAlign:'center', fontSize:'28px', letterSpacing:'12px', fontWeight:800,
+              width:'100%', padding:'16px', borderRadius:'12px', border:'2px solid #C5D5F0',
+              marginBottom:'12px', boxSizing:'border-box'}}
           />
           <button onClick={() => {
             if (pinForEdit === profile.driver_pin) {
