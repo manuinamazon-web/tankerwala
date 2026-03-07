@@ -257,12 +257,12 @@ export default function ViewBids({ profile }) {
                 {/* 📍 Area + Distance */}
                 <div style={{fontSize:'13px', color:'#5a6a85'}}>
                   📍 {bid.profiles?.area || 'Bengaluru'}
-                  {dist && (
+                  {dist !== null && (
                     <span style={{
                       marginLeft:'8px', background:'#E3F2FD', color:'#1565C0',
                       padding:'2px 8px', borderRadius:'12px', fontSize:'12px', fontWeight:600
                     }}>
-                      🗺️ {dist} km away
+                      🗺️ {parseFloat(dist) < 0.5 ? 'Very close!' : `${dist} km away`}
                     </span>
                   )}
                 </div>
