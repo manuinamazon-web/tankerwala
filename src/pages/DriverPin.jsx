@@ -129,6 +129,15 @@ export default function DriverPin({ profile }) {
     else setPin(digits)
   }
 
+  // Auto focus first input when mode is set
+  useEffect(() => {
+    if (mode) {
+      setTimeout(() => {
+        inputRefs.current[0]?.focus()
+      }, 300)
+    }
+  }, [mode, step])
+
   if (!mode) return <div className="page" style={{display:'flex',justifyContent:'center',alignItems:'center'}}><div className="spinner"></div></div>
 
   const tankerColor = profile.tanker_type === 'water' ? '#1565C0' : '#2E7D32'
@@ -207,15 +216,17 @@ export default function DriverPin({ profile }) {
                   value={digit}
                   onChange={e => handlePinInput(e.target.value, idx, step === 'confirm')}
                   onKeyDown={e => handleKeyDown(e, idx, step === 'confirm')}
-                  onFocus={() => resetPin(idx, step === 'confirm')}
+                  onClick={() => currentRefs.current[idx]?.focus()}
+                  autoFocus={idx === 0}
                   style={{
-                    width:'56px', height:'64px', textAlign:'center',
-                    fontSize: digit ? '0px' : '20px',
-                    fontWeight:800, borderRadius:'12px',
-                    border: digit ? `2px solid ${tankerColor}` : '2px solid #C5D5F0',
-                    background: digit ? '#E3F2FD' : '#F8FAFF',
-                    outline:'none', caretColor:'transparent',
-                    color: tankerColor
+                    width:'64px', height:'72px', textAlign:'center',
+                    fontSize: digit ? '0px' : '28px',
+                    fontWeight:800, borderRadius:'14px',
+                    border: digit ? `3px solid ${tankerColor}` : '2px solid #C5D5F0',
+                    background: digit ? '#E3F2FD' : 'white',
+                    outline:'none', caretColor: tankerColor,
+                    color: tankerColor, cursor:'text',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
                   }}
                 />
                 {/* Show filled dot */}
@@ -265,3 +276,4 @@ export default function DriverPin({ profile }) {
     </div>
   )
 }
+
