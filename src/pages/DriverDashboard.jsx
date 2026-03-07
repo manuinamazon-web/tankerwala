@@ -269,6 +269,11 @@ export default function DriverDashboard({ profile, setProfile }) {
             driver_lat: lat, driver_lng: lng,
             last_seen: new Date().toISOString()
           }).eq('id', profile.id)
+
+          // ✅ Sync driver GPS to active request so customer sees live location
+          await supabase.from('requests').update({
+            driver_lat: lat, driver_lng: lng
+          }).eq('driver_id', profile.id).eq('status', 'accepted')
           resolve({ lat, lng })
         },
         (err) => {
