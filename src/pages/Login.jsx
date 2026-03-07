@@ -77,7 +77,7 @@ export default function Login() {
 
     setLoading(false)
 
-    if (profile?.role === 'driver') navigate('/driver')
+    if (profile?.role === 'driver') navigate('/driver-pin')
     else if (profile?.role === 'admin') navigate('/admin')
     else navigate('/customer')
   }
